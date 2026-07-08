@@ -19,7 +19,9 @@ import {
   ArrowRight,
   RotateCcw,
   ListFilter,
-  AlertTriangle
+  AlertTriangle,
+  MapPin,
+  ShieldCheck
 } from 'lucide-react';
 import { Teacher, Resource, NFCHistoryEvent } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
@@ -30,6 +32,7 @@ interface EquipmentUsageProps {
   history: NFCHistoryEvent[];
   onRefresh: () => void;
   loggedInTeacherId: string;
+  onSelectResourceForInspection?: (resId: string) => void;
 }
 
 export default function EquipmentUsage({ 
@@ -37,11 +40,17 @@ export default function EquipmentUsage({
   resources, 
   history, 
   onRefresh, 
-  loggedInTeacherId
+  loggedInTeacherId,
+  onSelectResourceForInspection
 }: EquipmentUsageProps) {
   // Device Owner / Personal Identification States
   const [deviceOwnerId, setDeviceOwnerId] = useState<string>(loggedInTeacherId || '');
   const [activeTab, setActiveTab] = useState<'scan' | 'items' | 'history'>('scan');
+
+  // Classroom scanned modal states
+  const [showClassroomChoice, setShowClassroomChoice] = useState<boolean>(false);
+  const [pendingClassroom, setPendingClassroom] = useState<Resource | null>(null);
+  const [pendingTeacherId, setPendingTeacherId] = useState<string>('');
 
   // Synchronize deviceOwnerId with App's loggedInTeacherId whenever it changes
   useEffect(() => {
@@ -99,10 +108,21 @@ export default function EquipmentUsage({
     setScanResult(null);
     setShowTeacherSelector(false);
     setScannedResource(null);
+    setShowClassroomChoice(false);
+    setPendingClassroom(null);
 
     // Simulate scanning delay
     setTimeout(() => {
       setIsScanning(false);
+
+      // Intercept if it's a classroom!
+      if (targetRes.category === 'classroom') {
+        setPendingClassroom(targetRes);
+        setPendingTeacherId(deviceOwnerId);
+        setShowClassroomChoice(true);
+        return;
+      }
+
       setScannedResource(targetRes);
 
       // Rule: If device owner is already set (personal identification is active)
@@ -720,6 +740,96 @@ export default function EquipmentUsage({
           </div>
         </div>
       )}
+
+      {/* 教室検出時の選択モーダル */}
+      <AnimatePresence>
+        {showClassroomChoice && pendingClassroom && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-xs">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95, y: 20 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.95, y: 20 }}
+              className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden text-slate-800"
+            >
+              <div className="p-6 text-center">
+                <div className="w-12 h-12 bg-indigo-50 border border-indigo-100 rounded-full flex items-center justify-center text-indigo-600 mx-auto mb-4">
+                  <Smartphone className="w-6 h-6 shrink-0 animate-pulse" />
+                </div>
+                <h3 className="text-base font-bold text-slate-800">
+                  特別教室の読み取り
+                </h3>
+                <p className="text-xs text-slate-500 mt-1">
+                  特別教室がスキャンされました。操作を選択してください。
+                </p>
+
+                <div className="bg-slate-50 border border-slate-150 p-4 rounded-xl my-5 text-left">
+                  <div className="text-xs font-semibold text-slate-400 uppercase tracking-wider mb-1">
+                    検出した教室
+                  </div>
+                  <div className="text-sm font-bold text-slate-800 flex items-center gap-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-indigo-500"></span>
+                    {pendingClassroom.name}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-1 flex items-center gap-1">
+                    <MapPin className="w-3.5 h-3.5" /> {pendingClassroom.location}
+                  </div>
+                  <div className="text-xs text-slate-500 mt-0.5 flex items-center gap-1">
+                    <User className="w-3.5 h-3.5" /> 操作教員: {
+                      teachers.find(t => t.id === (pendingTeacherId || deviceOwnerId))?.name || '【共有スマホ：利用時に教員選択】'
+                    }
+                  </div>
+                </div>
+
+                <div className="space-y-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowClassroomChoice(false);
+                      const activeTId = pendingTeacherId || deviceOwnerId;
+                      if (activeTId) {
+                        executeTap(pendingClassroom, activeTId);
+                      } else {
+                        // 共有タブレットモード：教員選択に進む
+                        setScannedResource(pendingClassroom);
+                        setShowTeacherSelector(true);
+                      }
+                    }}
+                    className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 rounded-xl text-xs transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ArrowLeftRight className="w-4 h-4" />
+                    教室の利用を処理する（利用開始・返却）
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowClassroomChoice(false);
+                      if (onSelectResourceForInspection) {
+                        onSelectResourceForInspection(pendingClassroom.id);
+                      }
+                    }}
+                    className="w-full bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-3 rounded-xl text-xs transition-all shadow-md cursor-pointer flex items-center justify-center gap-2 hover:scale-[1.02] active:scale-[0.98]"
+                  >
+                    <ShieldCheck className="w-4 h-4" />
+                    教室の安全点検を行う（点検フォームへ）
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowClassroomChoice(false);
+                      setPendingClassroom(null);
+                    }}
+                    className="w-full bg-slate-100 hover:bg-slate-200 text-slate-600 font-semibold py-2.5 rounded-xl text-xs transition-all cursor-pointer"
+                  >
+                    キャンセル
+                  </button>
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

@@ -3,6 +3,7 @@ import path from 'path';
 import fs from 'fs';
 import { createServer as createViteServer } from 'vite';
 import dotenv from 'dotenv';
+import { JWT } from 'google-auth-library';
 import { 
   Teacher, 
   Resource, 
@@ -301,6 +302,29 @@ app.post('/api/sos/resolve', (req, res) => {
 
 // Google Workspace API helpers
 async function getGoogleAccessToken(): Promise<string | null> {
+  // 1. If a Google Service Account key is provided in environment variables, use it
+  if (process.env.GOOGLE_SERVICE_ACCOUNT_KEY) {
+    try {
+      const keyData = JSON.parse(process.env.GOOGLE_SERVICE_ACCOUNT_KEY);
+      const jwtClient = new JWT({
+        email: keyData.client_email,
+        key: keyData.private_key,
+        scopes: [
+          'https://www.googleapis.com/auth/spreadsheets',
+          'https://www.googleapis.com/auth/drive.file',
+          'https://www.googleapis.com/auth/drive'
+        ],
+      });
+      const creds = await jwtClient.getAccessToken();
+      if (creds.token) {
+        return creds.token;
+      }
+    } catch (e) {
+      console.error('Error generating token from GOOGLE_SERVICE_ACCOUNT_KEY:', e);
+    }
+  }
+
+  // 2. Fallback to existing static/OAuth tokens
   if (process.env.GOOGLE_OAUTH_TOKEN) {
     return process.env.GOOGLE_OAUTH_TOKEN;
   }

@@ -16,7 +16,8 @@ import {
   Menu,
   FileSpreadsheet,
   FolderOpen,
-  ExternalLink
+  ExternalLink,
+  DoorOpen
 } from 'lucide-react';
 import { 
   Teacher, 
@@ -35,6 +36,7 @@ import SafetyInspection from './components/SafetyInspection';
 import ResourceManager from './components/ResourceManager';
 import ResourceRegister from './components/ResourceRegister';
 import EquipmentUsage from './components/EquipmentUsage';
+import ClassroomUsage from './components/ClassroomUsage';
 
 export default function App() {
   // View/Viewport Mode: 'desktop' (PC view) or 'mobile' (smartphone simulator view)
@@ -387,6 +389,19 @@ export default function App() {
 
                       <button
                         onClick={() => {
+                          setActiveTab('classroom_usage');
+                          setIsMobileMenuOpen(false);
+                        }}
+                        className={`flex flex-col items-center justify-center p-3 border rounded-xl gap-1.5 transition-all cursor-pointer hover:bg-slate-50 ${
+                          activeTab === 'classroom_usage' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600'
+                        }`}
+                      >
+                        <DoorOpen className="w-5 h-5 text-indigo-500" />
+                        <span className="text-[10px]">特別教室利用</span>
+                      </button>
+
+                      <button
+                        onClick={() => {
                           setActiveTab('reservations');
                           setIsMobileMenuOpen(false);
                         }}
@@ -547,6 +562,18 @@ export default function App() {
               </button>
 
               <button
+                onClick={() => setActiveTab('classroom_usage')}
+                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
+                  activeTab === 'classroom_usage' 
+                    ? 'bg-indigo-600 text-white font-semibold shadow-sm' 
+                    : 'hover:bg-slate-800 text-slate-300 hover:text-white'
+                }`}
+              >
+                <DoorOpen className="w-5 h-5 shrink-0" />
+                <span>特別教室利用 (利用・返却)</span>
+              </button>
+
+              <button
                 onClick={() => setActiveTab('reservations')}
                 className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all ${
                   activeTab === 'reservations' 
@@ -656,6 +683,10 @@ export default function App() {
                   onNavigate={(tab) => setActiveTab(tab)}
                   onRefresh={fetchData}
                   sheetsConfig={sheetsConfig}
+                  onSelectResourceForInspection={(resId) => {
+                    setPreselectedResourceId(resId);
+                    setActiveTab('safety');
+                  }}
                 />
               )}
 
@@ -687,6 +718,24 @@ export default function App() {
                   history={nfcHistory}
                   onRefresh={fetchData}
                   loggedInTeacherId={loggedInTeacherId}
+                  onSelectResourceForInspection={(resId) => {
+                    setPreselectedResourceId(resId);
+                    setActiveTab('safety');
+                  }}
+                />
+              )}
+
+              {activeTab === 'classroom_usage' && (
+                <ClassroomUsage 
+                  teachers={teachers}
+                  resources={resources}
+                  history={nfcHistory}
+                  onRefresh={fetchData}
+                  loggedInTeacherId={loggedInTeacherId}
+                  onSelectResourceForInspection={(resId) => {
+                    setPreselectedResourceId(resId);
+                    setActiveTab('safety');
+                  }}
                 />
               )}
 
@@ -818,6 +867,19 @@ export default function App() {
               >
                 <Tag className="w-5 h-5 text-indigo-500" />
                 <span className="text-[10px]">備品登録 (NFC)</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('classroom_usage');
+                  setIsMobileMenuOpen(false);
+                }}
+                className={`flex flex-col items-center justify-center p-3 border rounded-xl gap-1.5 transition-all cursor-pointer hover:bg-slate-50 ${
+                  activeTab === 'classroom_usage' ? 'border-indigo-500 bg-indigo-50 text-indigo-700 font-bold' : 'border-slate-200 text-slate-600'
+                }`}
+              >
+                <DoorOpen className="w-5 h-5 text-indigo-500" />
+                <span className="text-[10px]">特別教室利用</span>
               </button>
 
               <button

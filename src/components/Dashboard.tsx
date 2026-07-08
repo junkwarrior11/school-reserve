@@ -14,7 +14,10 @@ import {
   CalendarDays,
   FileSpreadsheet,
   FolderOpen,
-  ExternalLink
+  ExternalLink,
+  MapPin,
+  Users,
+  ShieldCheck
 } from 'lucide-react';
 import { Teacher, Resource, Reservation, InspectionLog, SOSRequest, NFCHistoryEvent } from '../types';
 
@@ -28,6 +31,7 @@ interface DashboardProps {
   onNavigate: (tab: string) => void;
   onRefresh: () => void;
   sheetsConfig: { hasToken: boolean; spreadsheetId: string | null; spreadsheetUrl: string | null };
+  onSelectResourceForInspection?: (resId: string) => void;
 }
 
 export default function Dashboard({ 
@@ -39,7 +43,8 @@ export default function Dashboard({
   history,
   onNavigate,
   onRefresh,
-  sheetsConfig
+  sheetsConfig,
+  onSelectResourceForInspection
 }: DashboardProps) {
 
   // Current Date string
@@ -407,6 +412,134 @@ export default function Dashboard({
               )}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* 🏫 特別教室の使用状況セクション (NFC/QR連動) */}
+      <div className="bg-white rounded-xl shadow-sm border border-slate-200 flex flex-col" id="classroom-status-panel">
+        <div className="p-4 border-b border-slate-100 flex justify-between items-center bg-slate-50/50 rounded-t-xl">
+          <h2 className="font-bold text-slate-800 flex items-center gap-2 text-sm">
+            <span className="p-1.5 bg-indigo-50 text-indigo-600 rounded-lg shrink-0">
+              <Users className="w-4 h-4" />
+            </span>
+            特別教室の使用状況（NFC/QR連動）
+          </h2>
+          <button 
+            onClick={() => onNavigate('classroom_usage')}
+            className="text-xs font-semibold text-indigo-600 hover:text-indigo-700"
+          >
+            教室の利用・返却へ &rarr;
+          </button>
+        </div>
+
+        <div className="p-5">
+          {resources.filter(r => r.category === 'classroom').length === 0 ? (
+            <div className="text-center py-8 text-xs text-slate-400">
+              登録されている特別教室はありません。マスタ管理で登録してください。
+            </div>
+          ) : (
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {resources
+                .filter(r => r.category === 'classroom')
+                .map(room => {
+                  const isUsed = room.status === 'checked_out';
+                  const userTeacher = isUsed ? teachers.find(t => t.id === room.currentTeacherId) : null;
+                  const useTime = isUsed && room.lastCheckedOutAt
+                    ? new Date(room.lastCheckedOutAt).toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })
+                    : null;
+                  const useDate = isUsed && room.lastCheckedOutAt
+                    ? new Date(room.lastCheckedOutAt).toLocaleDateString('ja-JP', { month: 'short', day: 'numeric' })
+                    : null;
+
+                  return (
+                    <div 
+                      key={room.id}
+                      className={`p-4 border rounded-xl flex flex-col justify-between transition-all hover:shadow-md ${
+                        isUsed 
+                          ? 'border-rose-100 bg-rose-50/30' 
+                          : 'border-slate-150 bg-white'
+                      }`}
+                    >
+                      <div>
+                        {/* Status badge & title */}
+                        <div className="flex items-center justify-between gap-2 mb-2">
+                          <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-extrabold uppercase tracking-wide flex items-center gap-1 ${
+                            isUsed 
+                              ? 'bg-rose-100 text-rose-800' 
+                              : 'bg-emerald-100 text-emerald-800'
+                          }`}>
+                            <span className={`w-1.5 h-1.5 rounded-full ${isUsed ? 'bg-rose-500 animate-pulse' : 'bg-emerald-500'}`}></span>
+                            {isUsed ? '使用中' : '空き'}
+                          </span>
+
+                          <span className="text-[10px] text-slate-400 font-mono flex items-center gap-1">
+                            <MapPin className="w-3 h-3 text-slate-300" />
+                            {room.location}
+                          </span>
+                        </div>
+
+                        {/* Room Name */}
+                        <h3 className="font-extrabold text-slate-800 text-sm mt-1">
+                          {room.name}
+                        </h3>
+
+                        {/* Usage details */}
+                        <div className="mt-3 min-h-[48px]">
+                          {isUsed && userTeacher ? (
+                            <div className="flex items-start gap-2 bg-white/70 border border-rose-50 p-2.5 rounded-xl">
+                              <div className={`w-6 h-6 rounded-full bg-${userTeacher.color || 'indigo'}-500 text-white font-bold flex items-center justify-center text-[10px] shrink-0 mt-0.5`}>
+                                {userTeacher.name.substring(0, 1)}
+                              </div>
+                              <div className="leading-tight">
+                                <p className="font-bold text-slate-700 text-xs">
+                                  {userTeacher.name} 先生
+                                </p>
+                                <p className="text-[9px] text-slate-500 flex items-center gap-1 mt-0.5">
+                                  <span>{userTeacher.department}</span>
+                                  <span>•</span>
+                                  <span className="font-semibold font-mono text-rose-600">{useTime}から利用中 ({useDate})</span>
+                                </p>
+                              </div>
+                            </div>
+                          ) : (
+                            <p className="text-xs text-slate-400 font-medium pt-2">
+                              現在利用可能です。NFC/QRスキャンで利用開始できます。
+                            </p>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Card Action Shortcuts */}
+                      <div className="mt-4 pt-3 border-t border-slate-100/80 flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (onSelectResourceForInspection) {
+                              onSelectResourceForInspection(room.id);
+                            } else {
+                              onNavigate('safety');
+                            }
+                          }}
+                          className="flex-1 py-1.5 text-[11px] font-bold text-slate-600 hover:text-indigo-600 bg-slate-50 hover:bg-indigo-50 border border-slate-200 hover:border-indigo-150 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <ShieldCheck className="w-3.5 h-3.5" />
+                          安全点検
+                        </button>
+                        
+                        <button
+                          type="button"
+                          onClick={() => onNavigate('classroom_usage')}
+                          className="flex-1 py-1.5 text-[11px] font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-lg transition-all cursor-pointer flex items-center justify-center gap-1"
+                        >
+                          <Smartphone className="w-3.5 h-3.5" />
+                          利用/返却
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
         </div>
       </div>
 
