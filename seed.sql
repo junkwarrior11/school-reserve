@@ -52,18 +52,18 @@ INSERT OR IGNORE INTO resources (id, name, category, location, subject, nfc_tag_
 ('CLS_HOKEN',  '保健室',    'classroom', '', '保健',   'TAG_CLS_HOKEN',  'QR_CLS_HOKEN',  'available', '[]');
 
 -- ────────────────────────────────────────────────────────────
--- 普通教室のワークスペース（equipment）— 12件（普通教室のみ）
+-- 普通教室のワークスペース（classroom）— 12件
 -- ────────────────────────────────────────────────────────────
 INSERT OR IGNORE INTO resources (id, name, category, location, subject, nfc_tag_id, qr_code_id, status, custom_inspection_items) VALUES
-('WS_1A', '1年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_1A', 'QR_WS_1A', 'available', '[]'),
-('WS_1B', '1年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_1B', 'QR_WS_1B', 'available', '[]'),
-('WS_2A', '2年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_2A', 'QR_WS_2A', 'available', '[]'),
-('WS_2B', '2年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_2B', 'QR_WS_2B', 'available', '[]'),
-('WS_3A', '3年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_3A', 'QR_WS_3A', 'available', '[]'),
-('WS_3B', '3年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_3B', 'QR_WS_3B', 'available', '[]'),
-('WS_4A', '4年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_4A', 'QR_WS_4A', 'available', '[]'),
-('WS_4B', '4年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_4B', 'QR_WS_4B', 'available', '[]'),
-('WS_5A', '5年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_5A', 'QR_WS_5A', 'available', '[]'),
-('WS_5B', '5年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_5B', 'QR_WS_5B', 'available', '[]'),
-('WS_6A', '6年1組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_6A', 'QR_WS_6A', 'available', '[]'),
-('WS_6B', '6年2組 ワークスペース', 'equipment', '', '全教科', 'TAG_WS_6B', 'QR_WS_6B', 'available', '[]');
+('WS_1A', '1年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_1A', 'QR_WS_1A', 'available', '[]'),
+('WS_1B', '1年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_1B', 'QR_WS_1B', 'available', '[]'),
+('WS_2A', '2年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_2A', 'QR_WS_2A', 'available', '[]'),
+('WS_2B', '2年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_2B', 'QR_WS_2B', 'available', '[]'),
+('WS_3A', '3年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_3A', 'QR_WS_3A', 'available', '[]'),
+('WS_3B', '3年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_3B', 'QR_WS_3B', 'available', '[]'),
+('WS_4A', '4年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_4A', 'QR_WS_4A', 'available', '[]'),
+('WS_4B', '4年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_4B', 'QR_WS_4B', 'available', '[]'),
+('WS_5A', '5年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_5A', 'QR_WS_5A', 'available', '[]'),
+('WS_5B', '5年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_5B', 'QR_WS_5B', 'available', '[]'),
+('WS_6A', '6年1組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_6A', 'QR_WS_6A', 'available', '[]'),
+('WS_6B', '6年2組ワークスペース', 'classroom', '', '全教科', 'TAG_WS_6B', 'QR_WS_6B', 'available', '[]');
