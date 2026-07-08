@@ -1128,60 +1128,26 @@ function renderEquipment(isMobile) {
     <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
       <i class="fa fa-box-archive text-indigo-600"></i> 備品使用状況
     </h2>
-    <div class="grid ${isMobile?'grid-cols-1':'grid-cols-2 sm:grid-cols-3'} gap-4">
+    <div class="grid ${isMobile?'grid-cols-1':'grid-cols-2 sm:grid-cols-3'} gap-3">
       ${equipment.map(r => {
         const teacher = r.current_teacher_id ? getTeacher(r.current_teacher_id) : null;
-        const useCount = state.nfcHistory.filter(h => h.resource_id === r.id && h.action === 'check_out').length;
-        const recentLogs = state.nfcHistory.filter(h => h.resource_id === r.id).slice(0, 3);
-        return `<div class="card space-y-3">
-          <div class="flex items-center gap-3">
-            <div class="w-10 h-10 rounded-xl bg-violet-100 text-violet-600 flex items-center justify-center shrink-0">
-              <i class="fa fa-box-archive"></i>
+        const inUse = r.status === 'checked_out';
+        return `<div class="card flex items-center gap-4 py-4">
+          <div class="w-11 h-11 rounded-xl ${inUse ? 'bg-indigo-100 text-indigo-600' : 'bg-slate-100 text-slate-400'} flex items-center justify-center shrink-0">
+            <i class="fa fa-box-archive text-lg"></i>
+          </div>
+          <div class="flex-1 min-w-0">
+            <p class="font-bold text-slate-800 text-base leading-tight truncate">${r.name}</p>
+            <div class="mt-1">
+              ${teacher
+                ? `<div class="flex items-center gap-1.5">${teacherAvatar(r.current_teacher_id, true)}<span class="text-sm font-semibold text-indigo-600">${teacher.name}</span></div>`
+                : `<span class="text-sm text-slate-400">未使用</span>`
+              }
             </div>
-            <div class="flex-1 min-w-0">
-              <p class="font-bold text-slate-800 text-sm truncate">${r.name}</p>
-              <p class="text-xs text-slate-500">${r.location}</p>
-            </div>
           </div>
-          <div class="flex items-center justify-between">
-            ${statusBadge(r.status)}
-            ${teacher ? `<div class="flex items-center gap-1.5">${teacherAvatar(r.current_teacher_id,true)}<span class="text-xs text-slate-600">${teacher.name}</span></div>` : '<span class="text-xs text-slate-400">未使用</span>'}
-          </div>
-          <div class="text-xs text-slate-500 bg-slate-50 rounded-lg px-3 py-2">
-            <span class="font-semibold text-slate-700">累計貸出: ${useCount}回</span>
-          </div>
-          ${recentLogs.length > 0 ? `
-          <div class="space-y-1">
-            ${recentLogs.map(h => {
-              const t = getTeacher(h.teacher_id);
-              const actionMap = {check_out:'貸出',check_in:'返却',baton:'引継'};
-              return `<div class="flex items-center justify-between text-xs">
-                <span class="text-slate-600">${t?.name||'不明'} · ${actionMap[h.action]||h.action}</span>
-                <span class="text-slate-400">${fmtDateTime(h.timestamp)}</span>
-              </div>`;
-            }).join('')}
-          </div>` : ''}
+          ${statusBadge(r.status)}
         </div>`;
       }).join('')}
-    </div>
-
-    <!-- Usage stats -->
-    <div class="card">
-      <h3 class="font-bold text-slate-700 text-sm mb-3">利用統計（教員別）</h3>
-      <div class="space-y-2">
-        ${state.teachers.map(t => {
-          const count = state.nfcHistory.filter(h => h.teacher_id === t.id && h.action === 'check_out').length;
-          const max = Math.max(...state.teachers.map(tc => state.nfcHistory.filter(h=>h.teacher_id===tc.id&&h.action==='check_out').length), 1);
-          return `<div class="flex items-center gap-3">
-            ${teacherAvatar(t.id, true)}
-            <span class="text-sm font-semibold text-slate-700 w-24 shrink-0 truncate">${t.name}</span>
-            <div class="flex-1 bg-slate-100 rounded-full h-2">
-              <div class="bg-indigo-500 h-2 rounded-full transition-all" style="width:${(count/max*100).toFixed(0)}%"></div>
-            </div>
-            <span class="text-xs font-bold text-slate-600 w-8 text-right">${count}</span>
-          </div>`;
-        }).join('')}
-      </div>
     </div>
   </div>`;
 }
