@@ -401,13 +401,15 @@ async function getOrCreateSpreadsheet(accessToken: string): Promise<string | nul
     const newId = spreadsheet.spreadsheetId;
 
     // Add Headers
-    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${newId}/values/Sheet1!A1:H1?valueInputOption=USER_ENTERED`, {
-      method: 'POST',
+    const appendRes = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${newId}/values/A1:H1?valueInputOption=USER_ENTERED`, {
+      method: 'PUT',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
+        range: 'A1:H1',
+        majorDimension: 'ROWS',
         values: [
           ['点検日時', '教室/備品名', '設置場所', '点検者', '総合評価', '点検項目詳細', '特記項目・コメント', '点検写真リンク']
         ]
@@ -538,14 +540,14 @@ async function appendInspectionToSheet(
       photoDriveLink || (log.photoUrl && log.photoUrl.startsWith('http') ? log.photoUrl : '')
     ];
 
-    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadId}/values/Sheet1!A:H:append?valueInputOption=USER_ENTERED`, {
+    const res = await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${spreadId}/values/A:H:append?valueInputOption=USER_ENTERED`, {
       method: 'POST',
       headers: {
         'Authorization': `Bearer ${accessToken}`,
         'Content-Type': 'application/json'
       },
       body: JSON.stringify({
-        range: 'Sheet1!A:H',
+        range: 'A:H',
         majorDimension: 'ROWS',
         values: [row]
       })
