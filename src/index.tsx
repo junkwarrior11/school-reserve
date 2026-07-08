@@ -9,7 +9,6 @@ type Bindings = {
 const app = new Hono<{ Bindings: Bindings }>()
 
 app.use('/api/*', cors())
-app.use('/static/*', serveStatic({ root: './public' }))
 
 // ─── Utility ────────────────────────────────────────────────────────────────
 
@@ -450,11 +449,11 @@ app.get('*', (c) => {
   <title>School-Trace | 学校NFC管理システム</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
-  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/style.css">
 </head>
 <body class="bg-slate-50 font-sans text-slate-900 antialiased">
   <div id="app"></div>
-  <script src="/static/app.js"></script>
+  <script src="/app.js"></script>
 </body>
 </html>`)
 })
