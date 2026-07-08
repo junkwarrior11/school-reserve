@@ -1,8 +1,8 @@
 node_modules/
-build/
 dist/
-coverage/
-.DS_Store
+.wrangler/
+.env
+.env.local
+.dev.vars
 *.log
-.env*
-!.env.example
+.pm2/

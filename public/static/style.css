@@ -1,0 +1,205 @@
+/* School-Trace Custom Styles */
+:root {
+  --primary: #4f46e5;
+  --primary-hover: #4338ca;
+  --success: #10b981;
+  --warning: #f59e0b;
+  --danger: #ef4444;
+}
+
+* { box-sizing: border-box; }
+
+body { font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; }
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #f1f5f9; }
+::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: #94a3b8; }
+
+/* NFC Scan Animation */
+@keyframes nfc-ping {
+  0% { transform: scale(1); opacity: 1; }
+  75%, 100% { transform: scale(2.2); opacity: 0; }
+}
+.nfc-ping { animation: nfc-ping 1.2s cubic-bezier(0,0,0.2,1) infinite; }
+
+@keyframes nfc-scan {
+  0% { box-shadow: 0 0 0 0 rgba(99,102,241,0.7); }
+  70% { box-shadow: 0 0 0 20px rgba(99,102,241,0); }
+  100% { box-shadow: 0 0 0 0 rgba(99,102,241,0); }
+}
+.nfc-scanning { animation: nfc-scan 1.5s ease-out infinite; }
+
+@keyframes slide-in {
+  from { transform: translateY(-10px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.slide-in { animation: slide-in 0.25s ease-out; }
+
+@keyframes fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.fade-in { animation: fade-in 0.3s ease-out; }
+
+/* Status badges */
+.badge-available { @apply bg-emerald-100 text-emerald-700 border border-emerald-200; }
+.badge-checked_out { @apply bg-indigo-100 text-indigo-700 border border-indigo-200; }
+.badge-maintenance { @apply bg-amber-100 text-amber-700 border border-amber-200; }
+.badge-ok { @apply bg-emerald-100 text-emerald-700; }
+.badge-caution { @apply bg-amber-100 text-amber-700; }
+.badge-ng { @apply bg-red-100 text-red-700; }
+
+/* Card */
+.card {
+  @apply bg-white rounded-2xl shadow-sm border border-slate-100 p-5;
+}
+
+/* Mobile frame */
+.phone-frame {
+  width: 375px;
+  min-height: 700px;
+  background: #0f172a;
+  border-radius: 48px;
+  border: 12px solid #1e293b;
+  box-shadow: 0 25px 60px -15px rgba(0,0,0,0.85);
+  overflow: hidden;
+  position: relative;
+  ring: 1px solid rgba(255,255,255,0.1);
+}
+
+/* Tooltip */
+.tooltip { position: relative; }
+.tooltip:hover::after {
+  content: attr(data-tip);
+  position: absolute;
+  bottom: 120%;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #1e293b;
+  color: #fff;
+  padding: 4px 8px;
+  border-radius: 6px;
+  font-size: 11px;
+  white-space: nowrap;
+  pointer-events: none;
+  z-index: 50;
+}
+
+/* Table */
+.data-table { @apply w-full text-sm; }
+.data-table th { @apply px-3 py-2 text-left text-xs font-semibold text-slate-500 bg-slate-50 border-b border-slate-100; }
+.data-table td { @apply px-3 py-2.5 border-b border-slate-50; }
+.data-table tr:hover td { @apply bg-slate-50/60; }
+
+/* Form */
+.form-input {
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 focus:border-transparent transition-all;
+}
+.form-select {
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-400 cursor-pointer;
+}
+.form-label {
+  @apply block text-xs font-semibold text-slate-600 mb-1;
+}
+
+/* Button variants */
+.btn { @apply inline-flex items-center gap-1.5 px-4 py-2 rounded-xl font-semibold text-sm transition-all cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed; }
+.btn-primary { @apply btn bg-indigo-600 text-white hover:bg-indigo-700 active:scale-95; }
+.btn-secondary { @apply btn bg-slate-100 text-slate-700 hover:bg-slate-200 active:scale-95; }
+.btn-danger { @apply btn bg-red-50 text-red-600 hover:bg-red-100 active:scale-95; }
+.btn-success { @apply btn bg-emerald-50 text-emerald-700 hover:bg-emerald-100 active:scale-95; }
+.btn-sm { @apply px-3 py-1.5 text-xs; }
+
+/* Nav tab */
+.nav-tab {
+  @apply flex flex-col items-center gap-1 px-2 py-1.5 rounded-xl text-xs font-semibold transition-all cursor-pointer;
+}
+.nav-tab.active { @apply bg-indigo-50 text-indigo-600; }
+.nav-tab:not(.active) { @apply text-slate-500 hover:text-slate-700 hover:bg-slate-50; }
+
+/* Status indicator dot */
+.status-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.status-dot-available { background: #10b981; }
+.status-dot-checked_out { background: #6366f1; }
+.status-dot-maintenance { background: #f59e0b; }
+
+/* Modal overlay */
+.modal-overlay {
+  position: fixed; inset: 0;
+  background: rgba(0,0,0,0.5);
+  backdrop-filter: blur(2px);
+  z-index: 100;
+  display: flex; align-items: center; justify-content: center;
+  padding: 16px;
+}
+.modal-box {
+  background: white;
+  border-radius: 24px;
+  width: 100%;
+  max-width: 520px;
+  max-height: 90vh;
+  overflow-y: auto;
+  padding: 24px;
+  box-shadow: 0 25px 50px -12px rgba(0,0,0,0.25);
+}
+
+/* Period grid */
+.period-cell {
+  @apply relative h-14 rounded-lg border-2 text-xs font-semibold flex items-center justify-center cursor-pointer transition-all;
+}
+.period-cell.available { @apply border-slate-200 hover:border-indigo-300 hover:bg-indigo-50; }
+.period-cell.booked { @apply border-indigo-200 bg-indigo-50 text-indigo-700 cursor-default; }
+.period-cell.selected { @apply border-indigo-500 bg-indigo-100 text-indigo-800; }
+
+/* Spinner */
+.spinner {
+  display: inline-block;
+  width: 20px; height: 20px;
+  border: 2px solid #e2e8f0;
+  border-top-color: #6366f1;
+  border-radius: 50%;
+  animation: spin 0.7s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* Toast notification */
+#toast-container {
+  position: fixed;
+  top: 20px; right: 20px;
+  z-index: 9999;
+  display: flex; flex-direction: column; gap: 8px;
+}
+.toast {
+  padding: 12px 18px;
+  border-radius: 12px;
+  font-size: 14px;
+  font-weight: 600;
+  min-width: 260px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  animation: slide-in 0.2s ease-out;
+}
+.toast-success { background: #f0fdf4; color: #166534; border: 1px solid #bbf7d0; }
+.toast-error   { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.toast-info    { background: #eff6ff; color: #1e40af; border: 1px solid #bfdbfe; }
+.toast-warning { background: #fffbeb; color: #92400e; border: 1px solid #fde68a; }
+
+/* Teacher color map */
+.teacher-indigo  { @apply bg-indigo-500 text-white; }
+.teacher-emerald { @apply bg-emerald-500 text-white; }
+.teacher-blue    { @apply bg-blue-500 text-white; }
+.teacher-rose    { @apply bg-rose-500 text-white; }
+.teacher-amber   { @apply bg-amber-500 text-white; }
+.teacher-purple  { @apply bg-purple-500 text-white; }
+.teacher-teal    { @apply bg-teal-500 text-white; }
+
+/* Inspection status colors */
+.inspect-ok      { @apply text-emerald-600 bg-emerald-50 border-emerald-200; }
+.inspect-caution { @apply text-amber-600 bg-amber-50 border-amber-200; }
+.inspect-ng      { @apply text-red-600 bg-red-50 border-red-200; }

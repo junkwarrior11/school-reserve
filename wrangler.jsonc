@@ -1,0 +1,14 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "school-reserve",
+  "compatibility_date": "2026-07-08",
+  "pages_build_output_dir": "./dist",
+  "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "school-reserve-production",
+      "database_id": "placeholder-will-be-replaced"
+    }
+  ]
+}

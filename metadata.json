@@ -1,6 +1,0 @@
-{
-  "name": "School-Trace",
-  "description": "NFCタグを活用した学校向けの備品・特別教室の貸出・安全点検管理システム",
-  "requestFramePermissions": ["camera"],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
-}
