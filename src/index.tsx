@@ -116,13 +116,14 @@ app.post('/api/resources', async (c) => {
   }
 
   const id = body.id || uid('R')
+  const qrId = body.qr_code_id || body.qrCodeId || uid('QR')
   await db.prepare(`
     INSERT INTO resources (id, name, category, location, subject, nfc_tag_id, qr_code_id, status, custom_inspection_items)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).bind(
-    id, body.name, body.category, body.location, body.subject || '共通',
+    id, body.name, body.category, body.location || '', body.subject || '共通',
     body.nfc_tag_id || body.nfcTagId || null,
-    body.qr_code_id || body.qrCodeId || null,
+    qrId,
     body.status || 'available',
     customItems
   ).run()

@@ -1050,33 +1050,78 @@ async function deleteTeacher(id) {
 // ─── RESOURCE REGISTER ───────────────────────────────────────
 function renderRegister(isMobile) {
   return `
-  <div class="space-y-4">
-    <div class="flex items-center justify-between">
-      <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-        <i class="fa fa-plus-circle text-indigo-600"></i> リソース新規登録
-      </h2>
-    </div>
+  <div class="space-y-6">
+    <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
+      <i class="fa fa-plus-circle text-indigo-600"></i> 新規登録
+    </h2>
+
+    <!-- リソース登録 -->
     <div class="card space-y-4">
+      <h3 class="font-bold text-slate-700 flex items-center gap-2">
+        <i class="fa fa-layer-group text-indigo-500"></i> リソース登録
+      </h3>
+
+      <!-- 種別 -->
       <div>
         <label class="form-label">種別 <span class="text-red-500">*</span></label>
         <div class="flex gap-3">
-          <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200" id="cat-equipment-label">
+          <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200">
             <input type="radio" name="reg-cat" value="equipment" checked onchange="updateRegisterUI('equipment')">
             <i class="fa fa-box-archive text-violet-500"></i>
             <span class="font-semibold text-sm">備品</span>
           </label>
-          <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200" id="cat-classroom-label">
+          <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200">
             <input type="radio" name="reg-cat" value="classroom" onchange="updateRegisterUI('classroom')">
             <i class="fa fa-door-open text-blue-500"></i>
             <span class="font-semibold text-sm">教室</span>
           </label>
         </div>
       </div>
-      <div><label class="form-label">名前 <span class="text-red-500">*</span></label><input class="form-input" id="reg-name" placeholder="例：理科室"></div>
-      <div id="reg-location-wrap"><label class="form-label">設置場所</label><input class="form-input" id="reg-location" placeholder="例：本館3階"></div>
-      <div><label class="form-label">教科</label><input class="form-input" id="reg-subject" placeholder="例：理科" value="共通"></div>
-      <div><label class="form-label">QRコードID</label><input class="form-input" id="reg-qr" placeholder="例：QR_001"></div>
+
+      <!-- 名前 -->
+      <div>
+        <label class="form-label">名前 <span class="text-red-500">*</span></label>
+        <input class="form-input" id="reg-name" placeholder="例：理科室">
+      </div>
+
+      <!-- 設置場所（備品のみ） -->
+      <div id="reg-location-wrap">
+        <label class="form-label">設置場所</label>
+        <input class="form-input" id="reg-location" placeholder="例：本館3階">
+      </div>
+
+      <!-- 教科 -->
+      <div>
+        <label class="form-label">教科</label>
+        <input class="form-input" id="reg-subject" placeholder="例：理科" value="共通">
+      </div>
+
+      <div class="pt-1 text-xs text-slate-400 flex items-center gap-1">
+        <i class="fa fa-info-circle"></i> QRコードIDは登録時に自動採番されます
+      </div>
+
       <button onclick="submitRegister()" class="w-full btn-primary py-3 rounded-xl text-base">
+        <i class="fa fa-plus mr-2"></i> 登録する
+      </button>
+    </div>
+
+    <!-- 教員登録 -->
+    <div class="card space-y-4">
+      <h3 class="font-bold text-slate-700 flex items-center gap-2">
+        <i class="fa fa-user-plus text-indigo-500"></i> 教員登録
+      </h3>
+
+      <div>
+        <label class="form-label">氏名 <span class="text-red-500">*</span></label>
+        <input class="form-input" id="reg-teacher-name" placeholder="例：山田 太郎">
+      </div>
+
+      <div>
+        <label class="form-label">所属 <span class="text-red-500">*</span></label>
+        <input class="form-input" id="reg-teacher-dept" placeholder="例：理科">
+      </div>
+
+      <button onclick="submitTeacherRegister()" class="w-full btn-primary py-3 rounded-xl text-base">
         <i class="fa fa-plus mr-2"></i> 登録する
       </button>
     </div>
@@ -1094,16 +1139,28 @@ async function submitRegister() {
   const name     = document.getElementById('reg-name')?.value?.trim();
   const location = category === 'equipment' ? (document.getElementById('reg-location')?.value?.trim() || '') : '';
   const subject  = document.getElementById('reg-subject')?.value?.trim() || '共通';
-  const qr_code_id = document.getElementById('reg-qr')?.value?.trim() || null;
 
   if (!name) { toast('名前は必須です', 'warning'); return; }
-  const res = await api('/api/resources', { method:'POST', body:{ name, location, subject, qr_code_id, category } });
+  const res = await api('/api/resources', { method:'POST', body:{ name, location, subject, category } });
   if (res.success) {
-    toast('登録しました', 'success');
+    toast(`「${name}」を登録しました`, 'success');
     document.getElementById('reg-name').value = '';
     document.getElementById('reg-location').value = '';
     document.getElementById('reg-subject').value = '共通';
-    document.getElementById('reg-qr').value = '';
+    await fetchData();
+  } else toast('登録に失敗しました', 'error');
+}
+
+async function submitTeacherRegister() {
+  const name       = document.getElementById('reg-teacher-name')?.value?.trim();
+  const department = document.getElementById('reg-teacher-dept')?.value?.trim();
+  if (!name)       { toast('氏名は必須です', 'warning'); return; }
+  if (!department) { toast('所属は必須です', 'warning'); return; }
+  const res = await api('/api/teachers', { method:'POST', body:{ name, department } });
+  if (res.success) {
+    toast(`「${name}」を登録しました`, 'success');
+    document.getElementById('reg-teacher-name').value = '';
+    document.getElementById('reg-teacher-dept').value = '';
     await fetchData();
   } else toast('登録に失敗しました', 'error');
 }
@@ -1235,6 +1292,7 @@ window.deleteResource = deleteResource;
 window.showAddTeacherModal = showAddTeacherModal;
 window.addTeacher = addTeacher;
 window.deleteTeacher = deleteTeacher;
+window.submitTeacherRegister = submitTeacherRegister;
 window.submitRegister = submitRegister;
 window._inspectTab = 'new';
 window._nfcScanMode = 'qr';
