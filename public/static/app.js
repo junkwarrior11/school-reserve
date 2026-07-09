@@ -113,7 +113,7 @@ function renderHeader() {
       </div>
       <div>
         <h1 class="text-lg font-bold tracking-tight text-slate-800 leading-none">School-Trace</h1>
-        <span class="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">学校NFC管理システム</span>
+        <span class="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">学校QR管理システム</span>
       </div>
     </div>
     <div class="flex items-center gap-2 sm:gap-3">
@@ -149,7 +149,7 @@ function renderHeader() {
 // ─── Sidebar nav (desktop) ──────────────────────────────────
 const TABS = [
   { id:'dashboard',   icon:'fa-house',         label:'ダッシュボード' },
-  { id:'nfc',         icon:'fa-rss',           label:'NFCシミュレーター' },
+  { id:'nfc',         icon:'fa-qrcode',        label:'QRスキャン' },
   { id:'reservations',icon:'fa-calendar-days', label:'予約カレンダー' },
   { id:'safety',      icon:'fa-shield-halved', label:'安全点検' },
   { id:'management',  icon:'fa-gears',         label:'リソース管理' },
@@ -397,7 +397,7 @@ function renderNFC(isMobile) {
   <div class="space-y-4">
     <div class="flex items-center justify-between">
       <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
-        <i class="fa fa-rss text-indigo-600"></i> NFCシミュレーター
+        <i class="fa fa-qrcode text-indigo-600"></i> QRコードスキャン
       </h2>
     </div>
 
@@ -405,18 +405,8 @@ function renderNFC(isMobile) {
       <!-- Scanner Panel -->
       <div class="card space-y-4">
         <h3 class="font-bold text-slate-700 text-sm flex items-center gap-2">
-          <i class="fa fa-mobile-screen text-indigo-500"></i> タグ読取シミュレーター
+          <i class="fa fa-qrcode text-indigo-500"></i> QRコード読取シミュレーター
         </h3>
-
-        <!-- Scan mode toggle -->
-        <div class="flex gap-2">
-          <button onclick="window._nfcScanMode='nfc'; setTab('nfc')" class="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all ${scanMode==='nfc'?'border-indigo-500 bg-indigo-50 text-indigo-700':'border-slate-200 text-slate-500 hover:border-slate-300'}">
-            <i class="fa fa-rss mr-1"></i> NFCタップ
-          </button>
-          <button onclick="window._nfcScanMode='qr'; setTab('nfc')" class="flex-1 py-2 rounded-xl text-xs font-bold border-2 transition-all ${scanMode==='qr'?'border-indigo-500 bg-indigo-50 text-indigo-700':'border-slate-200 text-slate-500 hover:border-slate-300'}">
-            <i class="fa fa-qrcode mr-1"></i> QRスキャン
-          </button>
-        </div>
 
         <!-- Teacher select -->
         <div>
@@ -431,8 +421,8 @@ function renderNFC(isMobile) {
         <div>
           <label class="form-label">備品・教室を選択</label>
           <select class="form-select" onchange="window._nfcSelectedResource=this.value" id="nfc-resource-sel">
-            <option value="">タグIDで選択...</option>
-            ${state.resources.map(r => `<option value="${r.nfc_tag_id||r.id}" ${(r.nfc_tag_id||r.id)===selResource?'selected':''}>${r.name} [${r.nfc_tag_id||'タグなし'}]</option>`).join('')}
+            <option value="">QRコードIDで選択...</option>
+            ${state.resources.map(r => `<option value="${r.qr_code_id||r.id}" ${(r.qr_code_id||r.id)===selResource?'selected':''}>${r.name} [${r.qr_code_id||'QRなし'}]</option>`).join('')}
           </select>
         </div>
 
@@ -443,10 +433,10 @@ function renderNFC(isMobile) {
           <span class="relative flex h-5 w-5">
             <span class="nfc-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
             <span class="relative inline-flex rounded-full h-5 w-5 bg-white/30 items-center justify-center">
-              <i class="fa fa-${scanMode==='qr'?'qrcode':'rss'} text-sm text-white"></i>
+              <i class="fa fa-qrcode text-sm text-white"></i>
             </span>
           </span>
-          ${scanMode==='nfc'?'NFCタップをシミュレート':'QRコードをスキャン'}
+          QRコードをスキャン
         </button>
 
         ${scanResult ? `
@@ -475,7 +465,7 @@ function renderNFC(isMobile) {
               </div>
               <div class="flex-1 min-w-0">
                 <p class="text-sm font-semibold text-slate-800 truncate">${r.name}</p>
-                <p class="text-xs text-slate-500 truncate">${r.location} · ${r.nfc_tag_id||'タグなし'}</p>
+                <p class="text-xs text-slate-500 truncate">${r.qr_code_id||'QRなし'}</p>
               </div>
               <div class="shrink-0 flex flex-col items-end gap-1">
                 ${statusBadge(r.status)}
@@ -490,7 +480,7 @@ function renderNFC(isMobile) {
     <!-- NFC History -->
     <div class="card">
       <h3 class="font-bold text-slate-700 text-sm flex items-center gap-2 mb-3">
-        <i class="fa fa-clock-rotate-left text-indigo-500"></i> 最近のNFC操作履歴
+        <i class="fa fa-clock-rotate-left text-indigo-500"></i> 最近のQR操作履歴
       </h3>
       <div class="overflow-x-auto">
         <table class="data-table">
@@ -519,7 +509,7 @@ function renderNFC(isMobile) {
 async function doNFCScan() {
   const teacherId = document.getElementById('nfc-teacher-sel')?.value || state.loggedInTeacherId;
   const tagId = document.getElementById('nfc-resource-sel')?.value;
-  if (!tagId) { toast('備品・教室を選択してください', 'warning'); return; }
+  if (!tagId) { toast('QRコードを選択してください', 'warning'); return; }
   if (!teacherId) { toast('教員を選択してください', 'warning'); return; }
 
   const btn = document.getElementById('nfc-scan-btn');
@@ -930,7 +920,7 @@ function renderManagement(isMobile) {
             </div>
             <div class="flex-1 min-w-0">
               <p class="font-bold text-slate-800 text-sm truncate">${r.name}</p>
-              <p class="text-xs text-slate-500 truncate">${r.location} · ${r.subject||'共通'} · NFC: ${r.nfc_tag_id||'なし'}</p>
+              <p class="text-xs text-slate-500 truncate">${r.subject||'共通'} · QR: ${r.qr_code_id||'なし'}</p>
             </div>
             <div class="flex items-center gap-2 shrink-0">
               ${statusBadge(r.status)}
@@ -960,7 +950,7 @@ function renderManagement(isMobile) {
             <div class="w-9 h-9 rounded-full ${colors[t.color]||'bg-indigo-500'} flex items-center justify-center text-white font-bold shrink-0">${t.name[0]}</div>
             <div class="flex-1 min-w-0">
               <p class="font-bold text-slate-800 text-sm">${t.name}</p>
-              <p class="text-xs text-slate-500">${t.department} · NFC: ${t.nfc_tag_id||'未登録'}</p>
+              <p class="text-xs text-slate-500">${t.department}</p>
             </div>
             <button onclick="deleteTeacher('${t.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-red-300 hover:text-red-500 flex items-center justify-center transition-all">
               <i class="fa fa-trash text-xs"></i>
@@ -984,7 +974,6 @@ function showEditResourceModal(id) {
       <div><label class="form-label">名前</label><input class="form-input" id="er-name" value="${r.name}"></div>
       <div><label class="form-label">設置場所</label><input class="form-input" id="er-location" value="${r.location}"></div>
       <div><label class="form-label">教科</label><input class="form-input" id="er-subject" value="${r.subject||''}"></div>
-      <div><label class="form-label">NFCタグID</label><input class="form-input" id="er-nfc" value="${r.nfc_tag_id||''}"></div>
       <div><label class="form-label">QRコードID</label><input class="form-input" id="er-qr" value="${r.qr_code_id||''}"></div>
       <div><label class="form-label">状態</label>
         <select class="form-select" id="er-status">
@@ -1008,7 +997,6 @@ async function saveResource(id) {
     name: document.getElementById('er-name')?.value,
     location: document.getElementById('er-location')?.value,
     subject: document.getElementById('er-subject')?.value,
-    nfc_tag_id: document.getElementById('er-nfc')?.value || null,
     qr_code_id: document.getElementById('er-qr')?.value || null,
     status: document.getElementById('er-status')?.value,
     category: r?.category,
@@ -1034,7 +1022,7 @@ function showAddTeacherModal() {
       </div>
       <div><label class="form-label">氏名</label><input class="form-input" id="at-name" placeholder="例：田中 太郎"></div>
       <div><label class="form-label">所属部署</label><input class="form-input" id="at-dept" placeholder="例：数学"></div>
-      <div><label class="form-label">NFCタグID（任意）</label><input class="form-input" id="at-nfc" placeholder="例：NFC_TANAKA_001"></div>
+
       <div class="flex gap-3 pt-2">
         <button onclick="closeModal()" class="btn-secondary flex-1">キャンセル</button>
         <button onclick="addTeacher()" class="btn-primary flex-1">追加する</button>
@@ -1046,9 +1034,8 @@ function showAddTeacherModal() {
 async function addTeacher() {
   const name = document.getElementById('at-name')?.value?.trim();
   const department = document.getElementById('at-dept')?.value?.trim();
-  const nfc_tag_id = document.getElementById('at-nfc')?.value?.trim() || null;
   if (!name || !department) { toast('氏名と所属は必須です','warning'); return; }
-  const res = await api('/api/teachers', { method:'POST', body:{ name, department, nfc_tag_id } });
+  const res = await api('/api/teachers', { method:'POST', body:{ name, department } });
   if (res.success) { toast('教員を追加しました','success'); closeModal(); await fetchData(); }
   else toast('追加に失敗しました','error');
 }
@@ -1250,7 +1237,7 @@ window.addTeacher = addTeacher;
 window.deleteTeacher = deleteTeacher;
 window.submitRegister = submitRegister;
 window._inspectTab = 'new';
-window._nfcScanMode = 'nfc';
+window._nfcScanMode = 'qr';
 
 // initial load
 fetchData();
