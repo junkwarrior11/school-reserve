@@ -1071,7 +1071,7 @@ function renderRegister(isMobile) {
     </div>
     <div class="card space-y-4">
       <div>
-        <label class="form-label">種別</label>
+        <label class="form-label">種別 <span class="text-red-500">*</span></label>
         <div class="flex gap-3">
           <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200" id="cat-equipment-label">
             <input type="radio" name="reg-cat" value="equipment" checked onchange="updateRegisterUI('equipment')">
@@ -1081,15 +1081,14 @@ function renderRegister(isMobile) {
           <label class="flex items-center gap-2 flex-1 p-3 rounded-xl border-2 cursor-pointer transition-all hover:border-indigo-200" id="cat-classroom-label">
             <input type="radio" name="reg-cat" value="classroom" onchange="updateRegisterUI('classroom')">
             <i class="fa fa-door-open text-blue-500"></i>
-            <span class="font-semibold text-sm">特別教室</span>
+            <span class="font-semibold text-sm">教室</span>
           </label>
         </div>
       </div>
-      <div><label class="form-label">名前 <span class="text-red-500">*</span></label><input class="form-input" id="reg-name" placeholder="例：3Dプリンター"></div>
-      <div><label class="form-label">設置場所 <span class="text-red-500">*</span></label><input class="form-input" id="reg-location" placeholder="例：情報室3階"></div>
-      <div><label class="form-label">教科</label><input class="form-input" id="reg-subject" placeholder="例：情報技術" value="共通"></div>
-      <div><label class="form-label">NFCタグID</label><input class="form-input" id="reg-nfc" placeholder="例：TAG_EQ_001"></div>
-      <div><label class="form-label">QRコードID</label><input class="form-input" id="reg-qr" placeholder="例：QR_EQ_001"></div>
+      <div><label class="form-label">名前 <span class="text-red-500">*</span></label><input class="form-input" id="reg-name" placeholder="例：理科室"></div>
+      <div id="reg-location-wrap"><label class="form-label">設置場所</label><input class="form-input" id="reg-location" placeholder="例：本館3階"></div>
+      <div><label class="form-label">教科</label><input class="form-input" id="reg-subject" placeholder="例：理科" value="共通"></div>
+      <div><label class="form-label">QRコードID</label><input class="form-input" id="reg-qr" placeholder="例：QR_001"></div>
       <button onclick="submitRegister()" class="w-full btn-primary py-3 rounded-xl text-base">
         <i class="fa fa-plus mr-2"></i> 登録する
       </button>
@@ -1097,27 +1096,29 @@ function renderRegister(isMobile) {
   </div>`;
 }
 
-function updateRegisterUI(cat) { /* just selection, no re-render needed */ }
+function updateRegisterUI(cat) {
+  const wrap = document.getElementById('reg-location-wrap');
+  if (wrap) wrap.style.display = cat === 'equipment' ? '' : 'none';
+}
 
 async function submitRegister() {
-  const name = document.getElementById('reg-name')?.value?.trim();
-  const location = document.getElementById('reg-location')?.value?.trim();
-  const subject = document.getElementById('reg-subject')?.value?.trim() || '共通';
-  const nfc_tag_id = document.getElementById('reg-nfc')?.value?.trim() || null;
-  const qr_code_id = document.getElementById('reg-qr')?.value?.trim() || null;
   const catEl = document.querySelector('input[name="reg-cat"]:checked');
   const category = catEl?.value || 'equipment';
+  const name     = document.getElementById('reg-name')?.value?.trim();
+  const location = category === 'equipment' ? (document.getElementById('reg-location')?.value?.trim() || '') : '';
+  const subject  = document.getElementById('reg-subject')?.value?.trim() || '共通';
+  const qr_code_id = document.getElementById('reg-qr')?.value?.trim() || null;
 
-  if (!name || !location) { toast('名前と設置場所は必須です','warning'); return; }
-  const res = await api('/api/resources', { method:'POST', body:{ name, location, subject, nfc_tag_id, qr_code_id, category } });
+  if (!name) { toast('名前は必須です', 'warning'); return; }
+  const res = await api('/api/resources', { method:'POST', body:{ name, location, subject, qr_code_id, category } });
   if (res.success) {
-    toast('リソースを登録しました','success');
+    toast('登録しました', 'success');
     document.getElementById('reg-name').value = '';
     document.getElementById('reg-location').value = '';
-    document.getElementById('reg-nfc').value = '';
+    document.getElementById('reg-subject').value = '共通';
     document.getElementById('reg-qr').value = '';
     await fetchData();
-  } else toast('登録に失敗しました','error');
+  } else toast('登録に失敗しました', 'error');
 }
 
 // ─── EQUIPMENT USAGE ─────────────────────────────────────────
