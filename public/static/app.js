@@ -55,6 +55,51 @@ function toast(msg, type = 'success') {
 // ─── Helpers ────────────────────────────────────────────────
 function getTeacher(id) { return state.teachers.find(t => t.id === id); }
 function getResource(id) { return state.resources.find(r => r.id === id); }
+
+// ─── QR Code ────────────────────────────────────────────────
+async function generateQRDataURL(text, size = 200) {
+  return new Promise((resolve, reject) => {
+    QRCode.toDataURL(text, { width: size, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } },
+      (err, url) => err ? reject(err) : resolve(url));
+  });
+}
+
+async function showQRModal(resourceId) {
+  const r = getResource(resourceId);
+  if (!r) return;
+  const qrValue = r.qr_code_id || r.id;
+  const dataUrl = await generateQRDataURL(qrValue, 240);
+  showModal(`
+    <div class="space-y-4 text-center">
+      <div class="flex items-center justify-between">
+        <h3 class="text-lg font-bold text-slate-800">QRコード</h3>
+        <button onclick="closeModal()" class="w-8 h-8 rounded-full bg-slate-100 flex items-center justify-center text-slate-500 hover:bg-slate-200">✕</button>
+      </div>
+      <p class="font-semibold text-slate-700">${r.name}</p>
+      <div class="flex justify-center">
+        <img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 shadow-sm" style="width:240px;height:240px;">
+      </div>
+      <p class="text-xs text-slate-400 font-mono">${qrValue}</p>
+      <div class="flex gap-3 pt-1">
+        <button onclick="closeModal()" class="btn-secondary flex-1">閉じる</button>
+        <a href="${dataUrl}" download="${r.name}_QR.png" class="btn-primary flex-1 flex items-center justify-center gap-2">
+          <i class="fa fa-download"></i> ダウンロード
+        </a>
+      </div>
+    </div>
+  `);
+}
+
+async function renderQRInline(containerId, qrValue, size = 160) {
+  const el = document.getElementById(containerId);
+  if (!el || !qrValue) return;
+  try {
+    const dataUrl = await generateQRDataURL(qrValue, size);
+    el.innerHTML = `<img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 mx-auto" style="width:${size}px;height:${size}px;">`;
+  } catch(e) {
+    el.innerHTML = `<p class="text-xs text-red-400">QR生成エラー</p>`;
+  }
+}
 function fmtDate(iso) { if (!iso) return '—'; return new Date(iso).toLocaleDateString('ja-JP', {month:'2-digit',day:'2-digit'}); }
 function fmtDateTime(iso) { if (!iso) return '—'; return new Date(iso).toLocaleString('ja-JP', {month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'}); }
 function today() { return new Date().toISOString().split('T')[0]; }
@@ -925,10 +970,13 @@ function renderManagement(isMobile) {
             <div class="flex items-center gap-2 shrink-0">
               ${statusBadge(r.status)}
               ${teacher ? `<span class="text-xs text-slate-500">${teacher.name}</span>` : ''}
-              <button onclick="showEditResourceModal('${r.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center transition-all">
+              <button onclick="showQRModal('${r.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-emerald-300 hover:text-emerald-600 flex items-center justify-center transition-all" title="QRコードを表示">
+                <i class="fa fa-qrcode text-xs"></i>
+              </button>
+              <button onclick="showEditResourceModal('${r.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-indigo-300 hover:text-indigo-600 flex items-center justify-center transition-all" title="編集">
                 <i class="fa fa-pen text-xs"></i>
               </button>
-              <button onclick="deleteResource('${r.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-red-300 hover:text-red-500 flex items-center justify-center transition-all">
+              <button onclick="deleteResource('${r.id}')" class="w-8 h-8 rounded-lg bg-white border border-slate-200 hover:border-red-300 hover:text-red-500 flex items-center justify-center transition-all" title="削除">
                 <i class="fa fa-trash text-xs"></i>
               </button>
             </div>
@@ -1103,6 +1151,16 @@ function renderRegister(isMobile) {
       <button onclick="submitRegister()" class="w-full btn-primary py-3 rounded-xl text-base">
         <i class="fa fa-plus mr-2"></i> 登録する
       </button>
+
+      <!-- 登録後QR表示エリア -->
+      <div id="reg-qr-result" class="hidden space-y-3 pt-2 border-t border-slate-100">
+        <p class="text-sm font-semibold text-slate-700 flex items-center gap-2">
+          <i class="fa fa-circle-check text-emerald-500"></i>
+          <span id="reg-qr-name"></span> を登録しました
+        </p>
+        <div id="reg-qr-canvas" class="flex justify-center"></div>
+        <div id="reg-qr-download" class="flex justify-center"></div>
+      </div>
     </div>
 
     <!-- 教員登録 -->
@@ -1143,11 +1201,26 @@ async function submitRegister() {
   if (!name) { toast('名前は必須です', 'warning'); return; }
   const res = await api('/api/resources', { method:'POST', body:{ name, location, subject, category } });
   if (res.success) {
-    toast(`「${name}」を登録しました`, 'success');
     document.getElementById('reg-name').value = '';
     document.getElementById('reg-location').value = '';
     document.getElementById('reg-subject').value = '共通';
     await fetchData();
+
+    // 登録後QR表示
+    const newResource = res.resource;
+    const qrValue = newResource?.qr_code_id || newResource?.id;
+    const resultArea = document.getElementById('reg-qr-result');
+    const nameLabel  = document.getElementById('reg-qr-name');
+    const canvas     = document.getElementById('reg-qr-canvas');
+    const dlArea     = document.getElementById('reg-qr-download');
+    if (resultArea && qrValue) {
+      nameLabel.textContent = name;
+      resultArea.classList.remove('hidden');
+      const dataUrl = await generateQRDataURL(qrValue, 180);
+      canvas.innerHTML = `<img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 shadow-sm" style="width:180px;height:180px;">`;
+      dlArea.innerHTML = `<a href="${dataUrl}" download="${name}_QR.png" class="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm"><i class="fa fa-download"></i> QRをダウンロード</a>`;
+    }
+    toast(`「${name}」を登録しました`, 'success');
   } else toast('登録に失敗しました', 'error');
 }
 
@@ -1293,6 +1366,7 @@ window.showAddTeacherModal = showAddTeacherModal;
 window.addTeacher = addTeacher;
 window.deleteTeacher = deleteTeacher;
 window.submitTeacherRegister = submitTeacherRegister;
+window.showQRModal = showQRModal;
 window.submitRegister = submitRegister;
 window._inspectTab = 'new';
 window._nfcScanMode = 'qr';
