@@ -431,27 +431,40 @@ async function resolveSOS(id) {
   await fetchData();
 }
 
-// ─── NFC SIMULATOR ───────────────────────────────────────────
+// ─── QR SCAN ─────────────────────────────────────────────────
 function renderNFC(isMobile) {
   const selTeacher = state.loggedInTeacherId;
   const selResource = window._nfcSelectedResource || '';
-  const scanMode = window._nfcScanMode || 'nfc';
   const scanResult = window._nfcScanResult || null;
+  const cameraActive = window._cameraActive || false;
 
   return `
   <div class="space-y-4">
-    <div class="flex items-center justify-between">
+    <div class="flex items-center justify-between flex-wrap gap-2">
       <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
         <i class="fa fa-qrcode text-indigo-600"></i> QRコードスキャン
       </h2>
+      <a href="/print-qr" target="_blank"
+        class="flex items-center gap-2 px-3 py-2 rounded-xl border border-slate-200 bg-white text-sm font-semibold text-slate-600 hover:border-indigo-300 hover:text-indigo-600 transition-all">
+        <i class="fa fa-print text-sm"></i> QR印刷ページ
+      </a>
     </div>
 
     <div class="${isMobile?'space-y-3':'grid grid-cols-2 gap-5'}">
       <!-- Scanner Panel -->
       <div class="card space-y-4">
-        <h3 class="font-bold text-slate-700 text-sm flex items-center gap-2">
-          <i class="fa fa-qrcode text-indigo-500"></i> QRコード読取シミュレーター
-        </h3>
+
+        <!-- Mode tabs -->
+        <div class="flex gap-1 bg-slate-100 rounded-xl p-1">
+          <button onclick="setScanInputMode('select')" id="mode-select-btn"
+            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${!cameraActive?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}">
+            <i class="fa fa-list mr-1"></i> リスト選択
+          </button>
+          <button onclick="setScanInputMode('camera')" id="mode-camera-btn"
+            class="flex-1 py-1.5 rounded-lg text-xs font-bold transition-all ${cameraActive?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}">
+            <i class="fa fa-camera mr-1"></i> カメラ読取
+          </button>
+        </div>
 
         <!-- Teacher select -->
         <div>
@@ -462,27 +475,55 @@ function renderNFC(isMobile) {
           </select>
         </div>
 
-        <!-- Resource select -->
-        <div>
+        <!-- リスト選択モード -->
+        <div id="scan-select-panel" class="${cameraActive?'hidden':''}">
           <label class="form-label">備品・教室を選択</label>
           <select class="form-select" onchange="window._nfcSelectedResource=this.value" id="nfc-resource-sel">
             <option value="">QRコードIDで選択...</option>
             ${state.resources.map(r => `<option value="${r.qr_code_id||r.id}" ${(r.qr_code_id||r.id)===selResource?'selected':''}>${r.name} [${r.qr_code_id||'QRなし'}]</option>`).join('')}
           </select>
+
+          <button onclick="doNFCScan()" id="nfc-scan-btn"
+            class="w-full mt-3 py-4 rounded-2xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-3 text-base shadow-sm"
+            style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+            <span class="relative flex h-5 w-5">
+              <span class="nfc-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
+              <span class="relative inline-flex rounded-full h-5 w-5 bg-white/30 items-center justify-center">
+                <i class="fa fa-qrcode text-sm text-white"></i>
+              </span>
+            </span>
+            QRコードをスキャン
+          </button>
         </div>
 
-        <!-- Scan button -->
-        <button onclick="doNFCScan()" id="nfc-scan-btn"
-          class="w-full py-4 rounded-2xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-3 text-base shadow-sm"
-          style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
-          <span class="relative flex h-5 w-5">
-            <span class="nfc-ping absolute inline-flex h-full w-full rounded-full bg-white opacity-75"></span>
-            <span class="relative inline-flex rounded-full h-5 w-5 bg-white/30 items-center justify-center">
-              <i class="fa fa-qrcode text-sm text-white"></i>
-            </span>
-          </span>
-          QRコードをスキャン
-        </button>
+        <!-- カメラ読取モード -->
+        <div id="scan-camera-panel" class="${cameraActive?'':'hidden'} space-y-3">
+          <div class="relative rounded-2xl overflow-hidden bg-slate-900" style="aspect-ratio:4/3;">
+            <video id="qr-video" class="w-full h-full object-cover" autoplay playsinline muted></video>
+            <canvas id="qr-canvas" class="hidden"></canvas>
+            <!-- スキャン枠 -->
+            <div class="absolute inset-0 flex items-center justify-center pointer-events-none">
+              <div class="border-2 border-indigo-400 rounded-2xl" style="width:60%;height:60%;box-shadow:0 0 0 9999px rgba(0,0,0,0.45);">
+                <div class="absolute top-0 left-0 w-6 h-6 border-t-4 border-l-4 border-indigo-400 rounded-tl-xl"></div>
+                <div class="absolute top-0 right-0 w-6 h-6 border-t-4 border-r-4 border-indigo-400 rounded-tr-xl"></div>
+                <div class="absolute bottom-0 left-0 w-6 h-6 border-b-4 border-l-4 border-indigo-400 rounded-bl-xl"></div>
+                <div class="absolute bottom-0 right-0 w-6 h-6 border-b-4 border-r-4 border-indigo-400 rounded-br-xl"></div>
+              </div>
+            </div>
+            <div class="absolute bottom-2 inset-x-0 text-center text-xs text-white/70" id="camera-status-msg">
+              カメラを起動しています...
+            </div>
+          </div>
+
+          <div id="qr-scan-decoded" class="hidden rounded-xl bg-indigo-50 border border-indigo-200 p-3">
+            <p class="text-xs font-semibold text-indigo-700 mb-1">読取結果</p>
+            <p class="text-sm font-mono text-indigo-900 break-all" id="qr-decoded-text"></p>
+          </div>
+
+          <button onclick="stopCamera()" class="w-full py-2.5 rounded-xl border border-slate-200 text-sm font-semibold text-slate-600 hover:bg-slate-50 transition-all">
+            <i class="fa fa-xmark mr-1"></i> カメラを停止
+          </button>
+        </div>
 
         ${scanResult ? `
         <div class="rounded-xl p-3 border-2 ${scanResult.success?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'} slide-in">
@@ -549,6 +590,137 @@ function renderNFC(isMobile) {
       </div>
     </div>
   </div>`;
+}
+
+// ─── Camera QR Scan ──────────────────────────────────────────
+let _cameraStream = null;
+let _cameraRAF = null;
+let _lastScannedQR = '';
+let _scanCooldown = false;
+
+function setScanInputMode(mode) {
+  if (mode === 'camera') {
+    window._cameraActive = true;
+    render();
+    // カメラ起動はrender後に
+    setTimeout(startCamera, 100);
+  } else {
+    stopCamera();
+    window._cameraActive = false;
+    render();
+  }
+}
+
+async function startCamera() {
+  const video = document.getElementById('qr-video');
+  const statusMsg = document.getElementById('camera-status-msg');
+  if (!video) return;
+
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }
+    });
+    _cameraStream = stream;
+    video.srcObject = stream;
+    video.onloadedmetadata = () => {
+      video.play();
+      if (statusMsg) statusMsg.textContent = 'QRコードを枠内に合わせてください';
+      _cameraRAF = requestAnimationFrame(scanFrame);
+    };
+  } catch(e) {
+    const msg = e.name === 'NotAllowedError'
+      ? 'カメラのアクセスが拒否されました。ブラウザの設定でカメラを許可してください。'
+      : 'カメラを起動できませんでした: ' + e.message;
+    if (statusMsg) statusMsg.textContent = msg;
+    toast(msg, 'error');
+  }
+}
+
+function stopCamera() {
+  if (_cameraRAF) { cancelAnimationFrame(_cameraRAF); _cameraRAF = null; }
+  if (_cameraStream) { _cameraStream.getTracks().forEach(t => t.stop()); _cameraStream = null; }
+  window._cameraActive = false;
+}
+
+function scanFrame() {
+  const video = document.getElementById('qr-video');
+  const canvas = document.getElementById('qr-canvas');
+  if (!video || !canvas || !_cameraStream) return;
+
+  if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    canvas.width = video.videoWidth;
+    canvas.height = video.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0);
+
+    try {
+      // jsQRが読み込まれているか確認
+      if (typeof jsQR === 'undefined') {
+        _cameraRAF = requestAnimationFrame(scanFrame);
+        return;
+      }
+      const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+      const code = jsQR(imageData.data, imageData.width, imageData.height, { inversionAttempts: 'dontInvert' });
+      if (code && code.data && !_scanCooldown) {
+        onQRDetected(code.data);
+      }
+    } catch(e) {}
+  }
+  _cameraRAF = requestAnimationFrame(scanFrame);
+}
+
+async function onQRDetected(qrData) {
+  if (_scanCooldown) return;
+  _scanCooldown = true;
+
+  // 読取表示
+  const decodedBox = document.getElementById('qr-scan-decoded');
+  const decodedText = document.getElementById('qr-decoded-text');
+  const statusMsg = document.getElementById('camera-status-msg');
+  if (decodedBox) decodedBox.classList.remove('hidden');
+  if (decodedText) decodedText.textContent = qrData;
+  if (statusMsg) statusMsg.textContent = '✅ QRコードを検出しました！処理中...';
+
+  // 対応するリソースを検索
+  const resource = state.resources.find(r => r.qr_code_id === qrData || r.id === qrData);
+  if (!resource) {
+    toast(`QRコード [${qrData}] に対応するリソースが見つかりません`, 'error');
+    window._nfcScanResult = { success: false, message: `QRコード [${qrData}] に対応するリソースが見つかりません` };
+    if (statusMsg) statusMsg.textContent = 'QRコードを枠内に合わせてください';
+    render();
+    setTimeout(() => { _scanCooldown = false; }, 3000);
+    return;
+  }
+
+  const teacherId = document.getElementById('nfc-teacher-sel')?.value || state.loggedInTeacherId;
+  if (!teacherId) {
+    toast('操作教員を選択してください', 'warning');
+    setTimeout(() => { _scanCooldown = false; }, 2000);
+    return;
+  }
+
+  try {
+    const res = await api('/api/nfc/tap', { method: 'POST', body: { tagId: qrData, teacherId } });
+    window._nfcScanResult = { success: res.success, message: res.message, action: res.action };
+    if (res.success) {
+      toast(res.message, 'success');
+      if (statusMsg) statusMsg.textContent = '✅ ' + res.message;
+    } else {
+      toast(res.message, 'error');
+      if (statusMsg) statusMsg.textContent = '❌ ' + res.message;
+    }
+    await fetchData();
+  } catch(e) {
+    window._nfcScanResult = { success: false, message: '通信エラーが発生しました' };
+    toast('通信エラー', 'error');
+    render();
+  }
+
+  setTimeout(() => {
+    _scanCooldown = false;
+    const sm = document.getElementById('camera-status-msg');
+    if (sm) sm.textContent = 'QRコードを枠内に合わせてください';
+  }, 3000);
 }
 
 async function doNFCScan() {
@@ -1368,6 +1540,9 @@ window.deleteTeacher = deleteTeacher;
 window.submitTeacherRegister = submitTeacherRegister;
 window.showQRModal = showQRModal;
 window.submitRegister = submitRegister;
+window.setScanInputMode = setScanInputMode;
+window.stopCamera = stopCamera;
+window.updateRegisterUI = updateRegisterUI;
 window._inspectTab = 'new';
 window._nfcScanMode = 'qr';
 

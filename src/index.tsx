@@ -439,6 +439,103 @@ app.post('/api/resources/quick-register', async (c) => {
   return c.json({ success: true, resource: row })
 })
 
+// ─── Print QR Page ───────────────────────────────────────────────────────────
+
+app.get('/print-qr', async (c) => {
+  const db = c.env.DB
+  const { category } = c.req.query()
+  let sql = 'SELECT id, name, category, location, qr_code_id FROM resources ORDER BY category ASC, name ASC'
+  const resources = category
+    ? await db.prepare('SELECT id, name, category, location, qr_code_id FROM resources WHERE category = ? ORDER BY name ASC').bind(category).all()
+    : await db.prepare(sql).all()
+
+  const rows = (resources.results as any[])
+  const cards = rows.map(r => `
+    <div class="qr-card">
+      <div class="qr-placeholder" id="qr-${r.id}" data-qr="${r.qr_code_id || r.id}"></div>
+      <div class="qr-label">
+        <div class="qr-name">${r.name}</div>
+        <div class="qr-id">${r.qr_code_id || r.id}</div>
+        ${r.location ? `<div class="qr-loc">${r.location}</div>` : ''}
+        <div class="qr-cat">${r.category === 'classroom' ? '📚 教室' : '📦 備品'}</div>
+      </div>
+    </div>
+  `).join('')
+
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>QRコード印刷 | School-Trace</title>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif; background: #f8fafc; }
+    .toolbar {
+      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+      background: #1e293b; color: white; padding: 12px 20px;
+      display: flex; align-items: center; justify-between; gap: 12px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    }
+    .toolbar h1 { font-size: 16px; font-weight: bold; }
+    .toolbar-btns { display: flex; gap: 8px; align-items: center; }
+    .btn-print { background: #6366f1; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; }
+    .btn-print:hover { background: #4f46e5; }
+    .btn-back { background: transparent; color: #94a3b8; border: 1px solid #475569; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
+    .btn-back:hover { color: white; border-color: #94a3b8; }
+    .filter-select { background: #334155; color: white; border: 1px solid #475569; padding: 7px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; }
+    .content { padding: 80px 20px 20px; }
+    .grid { display: flex; flex-wrap: wrap; gap: 12px; }
+    .qr-card {
+      background: white; border: 1.5px solid #e2e8f0; border-radius: 12px;
+      padding: 12px; width: 160px; display: flex; flex-direction: column; align-items: center; gap: 8px;
+      page-break-inside: avoid; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    }
+    .qr-placeholder img { display: block; width: 130px; height: 130px; border-radius: 8px; }
+    .qr-label { text-align: center; width: 100%; }
+    .qr-name { font-weight: bold; font-size: 12px; color: #1e293b; line-height: 1.3; margin-bottom: 3px; }
+    .qr-id { font-size: 8px; color: #94a3b8; font-family: monospace; word-break: break-all; margin-bottom: 2px; }
+    .qr-loc { font-size: 10px; color: #64748b; }
+    .qr-cat { font-size: 10px; color: #64748b; margin-top: 2px; }
+    .count-bar { font-size: 13px; color: #64748b; margin-bottom: 12px; }
+    @media print {
+      .toolbar { display: none !important; }
+      .content { padding: 0; }
+      body { background: white; }
+      .qr-card { box-shadow: none; border-color: #cbd5e1; }
+    }
+  </style>
+</head>
+<body>
+  <div class="toolbar">
+    <h1>🖨️ QRコード印刷</h1>
+    <div class="toolbar-btns">
+      <select class="filter-select" onchange="location.href='/print-qr'+(this.value?'?category='+this.value:'')">
+        <option value="" ${!category?'selected':''}>すべて (${rows.length}件)</option>
+        <option value="classroom" ${category==='classroom'?'selected':''}>教室のみ</option>
+        <option value="equipment" ${category==='equipment'?'selected':''}>備品のみ</option>
+      </select>
+      <a href="/" class="btn-back">← 戻る</a>
+      <button class="btn-print" onclick="window.print()">🖨️ 印刷する</button>
+    </div>
+  </div>
+  <div class="content">
+    <div class="count-bar">${rows.length} 件のQRコードを表示中</div>
+    <div class="grid">${cards}</div>
+  </div>
+  <script>
+    document.querySelectorAll('[data-qr]').forEach(el => {
+      const val = el.getAttribute('data-qr');
+      QRCode.toDataURL(val, { width: 130, margin: 1, color: { dark: '#1e293b', light: '#ffffff' } }, (err, url) => {
+        if (!err) el.innerHTML = '<img src="' + url + '" alt="QR">';
+        else el.innerHTML = '<div style="width:130px;height:130px;display:flex;align-items:center;justify-content:center;background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;">生成エラー</div>';
+      });
+    });
+  </script>
+</body>
+</html>`)
+})
+
 // ─── Frontend ────────────────────────────────────────────────────────────────
 
 app.get('*', (c) => {
@@ -451,6 +548,7 @@ app.get('*', (c) => {
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
 <body class="bg-slate-50 font-sans text-slate-900 antialiased">
