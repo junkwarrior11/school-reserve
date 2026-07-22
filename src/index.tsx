@@ -4,6 +4,11 @@ import { serveStatic } from 'hono/cloudflare-workers'
 
 type Bindings = {
   DB: D1Database
+  // Google API Secrets（wrangler secret put で登録）
+  GOOGLE_CLIENT_EMAIL: string      // サービスアカウントのメール
+  GOOGLE_PRIVATE_KEY: string       // サービスアカウントの秘密鍵
+  GOOGLE_SHEET_ID: string          // スプレッドシートID（初回作成後に設定）
+  GOOGLE_DRIVE_FOLDER_ID: string   // Driveフォルダ―ID（初回作成後に設定）
 }
 
 const app = new Hono<{ Bindings: Bindings }>()
@@ -14,6 +19,204 @@ app.use('/api/*', cors())
 
 function uid(prefix: string): string {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+}
+
+// ─── Google API Helper ──────────────────────────────────────────────────────
+
+/**
+ * Service Account の秘密鍵で JWT を生成し、Google OAuth2 アクセストークンを取得
+ * Cloudflare Workers の Web Crypto API（RSA-SHA256）を使用
+ */
+async function getGoogleAccessToken(clientEmail: string, privateKeyPem: string, scope: string): Promise<string> {
+  const now = Math.floor(Date.now() / 1000)
+  const header = { alg: 'RS256', typ: 'JWT' }
+  const payload = {
+    iss: clientEmail,
+    scope,
+    aud: 'https://oauth2.googleapis.com/token',
+    exp: now + 3600,
+    iat: now,
+  }
+
+  const b64url = (obj: object) =>
+    btoa(JSON.stringify(obj)).replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+
+  const signingInput = `${b64url(header)}.${b64url(payload)}`
+
+  // PEM → DER バイナリ
+  const pemBody = privateKeyPem
+    .replace(/-----BEGIN PRIVATE KEY-----/g, '')
+    .replace(/-----END PRIVATE KEY-----/g, '')
+    .replace(/\s+/g, '')
+  const derBinary = Uint8Array.from(atob(pemBody), c => c.charCodeAt(0))
+
+  const cryptoKey = await crypto.subtle.importKey(
+    'pkcs8', derBinary,
+    { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+    false, ['sign']
+  )
+
+  const signature = await crypto.subtle.sign(
+    'RSASSA-PKCS1-v1_5',
+    cryptoKey,
+    new TextEncoder().encode(signingInput)
+  )
+
+  const sigB64 = btoa(String.fromCharCode(...new Uint8Array(signature)))
+    .replace(/=/g, '').replace(/\+/g, '-').replace(/\//g, '_')
+
+  const jwt = `${signingInput}.${sigB64}`
+
+  const tokenRes = await fetch('https://oauth2.googleapis.com/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    body: `grant_type=urn%3Aietf%3Aparams%3Aoauth%3Agrant-type%3Ajwt-bearer&assertion=${jwt}`,
+  })
+  const tokenData: any = await tokenRes.json()
+  if (!tokenData.access_token) throw new Error(`Google token error: ${JSON.stringify(tokenData)}`)
+  return tokenData.access_token
+}
+
+/**
+ * Google Sheetsのスプレッドシートを新規作成し、ヘッダ行を挿入してIDを返す
+ */
+async function createInspectionSheet(token: string): Promise<string> {
+  // スプレッドシート作成
+  const createRes = await fetch('https://sheets.googleapis.com/v4/spreadsheets', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      properties: { title: 'School-Trace 安全点検記録' },
+      sheets: [{ properties: { title: '点検ログ', sheetId: 0 } }],
+    }),
+  })
+  const created: any = await createRes.json()
+  const sheetId = created.spreadsheetId
+  if (!sheetId) throw new Error('シート作成失敗: ' + JSON.stringify(created))
+
+  // ヘッダ行を書き込む
+  const headers = [['記録ID','日時','場所/備品名','カテゴリ','総合評価','点検者','各項目JSON','コメント','写真URL','修繕状況']]
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/点検ログ!A1:J1?valueInputOption=RAW`, {
+    method: 'PUT',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ values: headers }),
+  })
+
+  // 列幅を整える
+  await fetch(`https://sheets.googleapis.com/v4/spreadsheets/${sheetId}:batchUpdate`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      requests: [
+        { updateDimensionProperties: { range: { sheetId: 0, dimension: 'COLUMNS', startIndex: 0, endIndex: 10 }, properties: { pixelSize: 160 }, fields: 'pixelSize' } },
+        { repeatCell: { range: { sheetId: 0, startRowIndex: 0, endRowIndex: 1 }, cell: { userEnteredFormat: { backgroundColor: { red: 0.25, green: 0.22, blue: 0.55 }, textFormat: { foregroundColor: { red: 1, green: 1, blue: 1 }, bold: true } } }, fields: 'userEnteredFormat(backgroundColor,textFormat)' } },
+      ],
+    }),
+  })
+  return sheetId
+}
+
+/**
+ * スプレッドシートに点検記録を1行追記
+ */
+async function appendToSheet(token: string, sheetId: string, row: string[]): Promise<void> {
+  await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/点検ログ!A:J:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+    {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ values: [row] }),
+    }
+  )
+}
+
+/**
+ * Google Drive フォルダを作成してIDを返す
+ */
+async function createDriveFolder(token: string, name: string, parentId?: string): Promise<string> {
+  const meta: any = { name, mimeType: 'application/vnd.google-apps.folder' }
+  if (parentId) meta.parents = [parentId]
+  const res = await fetch('https://www.googleapis.com/drive/v3/files', {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify(meta),
+  })
+  const data: any = await res.json()
+  if (!data.id) throw new Error('フォルダ作成失敗: ' + JSON.stringify(data))
+  // 誰でも閲覧できるよう権限設定（オプション）
+  await fetch(`https://www.googleapis.com/drive/v3/files/${data.id}/permissions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+  })
+  return data.id
+}
+
+/**
+ * Google Drive に画像ファイルをアップロードし、公開URLを返す
+ */
+async function uploadToDrive(
+  token: string,
+  folderId: string,
+  filename: string,
+  base64Data: string,
+  mimeType: string
+): Promise<string> {
+  // multipart/related でメタデータ + バイナリを1リクエストで送信
+  const boundary = '-------SchoolTraceBoundary'
+  const meta = JSON.stringify({ name: filename, parents: [folderId] })
+  const binary = Uint8Array.from(atob(base64Data), c => c.charCodeAt(0))
+
+  const metaBytes  = new TextEncoder().encode(
+    `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n`
+  )
+  const mediaHeader = new TextEncoder().encode(
+    `--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`
+  )
+  const closing    = new TextEncoder().encode(`\r\n--${boundary}--`)
+
+  const body = new Uint8Array(metaBytes.length + mediaHeader.length + binary.length + closing.length)
+  let offset = 0
+  body.set(metaBytes,   offset); offset += metaBytes.length
+  body.set(mediaHeader, offset); offset += mediaHeader.length
+  body.set(binary,      offset); offset += binary.length
+  body.set(closing,     offset)
+
+  const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id', {
+    method: 'POST',
+    headers: {
+      'Authorization': `Bearer ${token}`,
+      'Content-Type': `multipart/related; boundary=${boundary}`,
+    },
+    body,
+  })
+  const uploaded: any = await uploadRes.json()
+  if (!uploaded.id) throw new Error('Drive upload失敗: ' + JSON.stringify(uploaded))
+
+  // 公開リンク付与
+  await fetch(`https://www.googleapis.com/drive/v3/files/${uploaded.id}/permissions`, {
+    method: 'POST',
+    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ role: 'reader', type: 'anyone' }),
+  })
+  return `https://drive.google.com/file/d/${uploaded.id}/view`
+}
+
+/**
+ * KVがない環境でSheet/FolderIDをD1 KV的に保存する小テーブルを使う
+ * resources テーブルとは別に app_settings テーブルに保存
+ */
+async function getSetting(db: D1Database, key: string): Promise<string | null> {
+  try {
+    const row: any = await db.prepare('SELECT value FROM app_settings WHERE key = ?').bind(key).first()
+    return row?.value ?? null
+  } catch { return null }
+}
+async function setSetting(db: D1Database, key: string, value: string): Promise<void> {
+  await db.prepare(`
+    INSERT INTO app_settings (key, value) VALUES (?, ?)
+    ON CONFLICT(key) DO UPDATE SET value=excluded.value
+  `).bind(key, value).run()
 }
 
 // ─── GET /api/data ───────────────────────────────────────────────────────────
@@ -223,6 +426,20 @@ app.post('/api/sos/resolve', async (c) => {
 
 // ─── Inspection ──────────────────────────────────────────────────────────────
 
+// Google連携状態の確認API（管理アプリから呼ぶ）
+app.get('/api/google-status', async (c) => {
+  const db = c.env.DB
+  const sheetId  = await getSetting(db, 'google_sheet_id')  || c.env.GOOGLE_SHEET_ID  || null
+  const folderId = await getSetting(db, 'google_drive_folder_id') || c.env.GOOGLE_DRIVE_FOLDER_ID || null
+  return c.json({
+    configured: !!(c.env.GOOGLE_CLIENT_EMAIL && c.env.GOOGLE_PRIVATE_KEY),
+    sheetId,
+    folderId,
+    sheetUrl:  sheetId  ? `https://docs.google.com/spreadsheets/d/${sheetId}`  : null,
+    folderUrl: folderId ? `https://drive.google.com/drive/folders/${folderId}` : null,
+  })
+})
+
 app.post('/api/inspection', async (c) => {
   const db = c.env.DB
   const body = await c.req.json()
@@ -231,6 +448,46 @@ app.post('/api/inspection', async (c) => {
   const repairStatus = (body.overallStatus === 'ng' || body.overallStatus === 'caution') ? 'pending' : 'none'
   const items = JSON.stringify(body.items || [])
 
+  // ── リソース名・教員名をDBから取得（Sheets書き込み用） ──
+  const resource: any = await db.prepare('SELECT * FROM resources WHERE id = ?').bind(body.resourceId || body.resource_id).first()
+  const teacher: any  = await db.prepare('SELECT * FROM teachers  WHERE id = ?').bind(body.teacherId  || body.teacher_id ).first()
+
+  // ── 写真を Google Drive にアップロード ──
+  let photoUrl: string | null = body.photoUrl || body.photo_url || null
+  const googleErrors: string[] = []
+
+  const clientEmail  = c.env.GOOGLE_CLIENT_EMAIL
+  const privateKey   = c.env.GOOGLE_PRIVATE_KEY
+  const hasGoogleCreds = !!(clientEmail && privateKey)
+
+  if (hasGoogleCreds && body.photoBase64 && body.photoMimeType) {
+    try {
+      const token = await getGoogleAccessToken(
+        clientEmail, privateKey,
+        'https://www.googleapis.com/auth/drive.file'
+      )
+
+      // Drive フォルダIDを取得（なければ自動作成）
+      let folderId = await getSetting(db, 'google_drive_folder_id')
+      if (!folderId && c.env.GOOGLE_DRIVE_FOLDER_ID) folderId = c.env.GOOGLE_DRIVE_FOLDER_ID
+      if (!folderId) {
+        folderId = await createDriveFolder(token, 'School-Trace 点検写真')
+        await setSetting(db, 'google_drive_folder_id', folderId)
+      }
+
+      // 日付別サブフォルダを作成
+      const dateStr = new Date(date).toLocaleDateString('ja-JP', { year: 'numeric', month: '2-digit', day: '2-digit' }).replace(/\//g, '-')
+      const subFolderId = await createDriveFolder(token, dateStr, folderId)
+
+      const ext = body.photoMimeType === 'image/png' ? 'png' : 'jpg'
+      const filename = `${dateStr}_${resource?.name || 'unknown'}_${id}.${ext}`
+      photoUrl = await uploadToDrive(token, subFolderId, filename, body.photoBase64, body.photoMimeType)
+    } catch (e: any) {
+      googleErrors.push('写真のアップロードに失敗しました: ' + e.message)
+    }
+  }
+
+  // ── D1 に保存 ──
   const existing = await db.prepare('SELECT id FROM inspection_logs WHERE id = ?').bind(id).first()
   if (existing) {
     await db.prepare(`
@@ -241,11 +498,11 @@ app.post('/api/inspection', async (c) => {
       WHERE id=?
     `).bind(
       body.resourceId || body.resource_id,
-      body.teacherId || body.teacher_id,
+      body.teacherId  || body.teacher_id,
       date, body.overallStatus || body.overall_status,
       items, body.generalComment || body.general_comment || '',
-      body.photoUrl || body.photo_url || null,
-      repairStatus, body.repairNote || body.repair_note || null,
+      photoUrl, repairStatus,
+      body.repairNote || body.repair_note || null,
       body.aiSuggestions || body.ai_suggestions || null,
       id
     ).run()
@@ -257,18 +514,69 @@ app.post('/api/inspection', async (c) => {
     `).bind(
       id,
       body.resourceId || body.resource_id,
-      body.teacherId || body.teacher_id,
+      body.teacherId  || body.teacher_id,
       date, body.overallStatus || body.overall_status || 'ok',
       items, body.generalComment || body.general_comment || '',
-      body.photoUrl || body.photo_url || null,
-      repairStatus,
+      photoUrl, repairStatus,
       body.repairNote || body.repair_note || null,
       body.aiSuggestions || body.ai_suggestions || null
     ).run()
   }
+
+  // ── Google Sheets に追記 ──
+  if (hasGoogleCreds) {
+    try {
+      const token = await getGoogleAccessToken(
+        clientEmail, privateKey,
+        'https://www.googleapis.com/auth/spreadsheets https://www.googleapis.com/auth/drive.file'
+      )
+
+      // Sheet IDを取得（なければ自動作成）
+      let sheetId = await getSetting(db, 'google_sheet_id')
+      if (!sheetId && c.env.GOOGLE_SHEET_ID) sheetId = c.env.GOOGLE_SHEET_ID
+      if (!sheetId) {
+        sheetId = await createInspectionSheet(token)
+        await setSetting(db, 'google_sheet_id', sheetId)
+      }
+
+      const overallMap: Record<string, string> = { ok: '✅ 良好', caution: '⚠️ 要確認', ng: '❌ 要修理' }
+      const repairMap: Record<string, string>  = { none: '異常なし', pending: '修繕待ち', fixed: '修繕済み' }
+      const dt = new Date(date).toLocaleString('ja-JP', { timeZone: 'Asia/Tokyo' })
+
+      // 各項目を見やすいテキストに変換
+      const itemsText = (body.items || []).map((it: any) => {
+        const s = it.status === 'ok' ? '◯' : it.status === 'caution' ? '△' : '✕'
+        return `${s}${it.title}${it.comment ? '（' + it.comment + '）' : ''}`
+      }).join(' / ')
+
+      const row = [
+        id,
+        dt,
+        resource?.name  || body.resourceId || '',
+        resource?.category === 'classroom' ? '教室' : '備品',
+        overallMap[body.overallStatus] || body.overallStatus || '',
+        teacher?.name   || body.teacherId  || '',
+        itemsText,
+        body.generalComment || '',
+        photoUrl || '',
+        repairMap[repairStatus] || repairStatus,
+      ]
+      await appendToSheet(token, sheetId, row)
+    } catch (e: any) {
+      googleErrors.push('スプレッドシートへの書き込みに失敗しました: ' + e.message)
+    }
+  }
+
   const row = await db.prepare('SELECT * FROM inspection_logs WHERE id = ?').bind(id).first() as any
   if (row) row.items = JSON.parse(row.items || '[]')
-  return c.json({ success: true, inspectionLog: row, message: '点検記録を保存しました。' })
+
+  return c.json({
+    success: true,
+    inspectionLog: row,
+    message: '点検記録を保存しました。',
+    photoUrl,
+    googleErrors: googleErrors.length > 0 ? googleErrors : undefined,
+  })
 })
 
 app.post('/api/inspection/fix', async (c) => {
@@ -661,6 +969,40 @@ app.get('/inspect/:qrId', async (c) => {
           class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 transition-all resize-none"></textarea>
       </div>
 
+      <!-- 写真撮影 -->
+      <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+        <h2 class="font-bold text-slate-800 flex items-center gap-2">
+          <i class="fa fa-camera text-indigo-500"></i> 写真撮影
+          <span class="text-xs font-normal text-slate-400">（危険箇所・問題点を撮影・任意）</span>
+        </h2>
+        <div class="grid grid-cols-2 gap-3">
+          <button onclick="openCamera()" type="button"
+            class="btn-tap py-3.5 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 text-indigo-600 font-bold text-sm flex flex-col items-center gap-1.5 transition-all active:scale-95">
+            <i class="fa fa-camera text-xl"></i><span>カメラで撮影</span>
+          </button>
+          <button onclick="openGallery()" type="button"
+            class="btn-tap py-3.5 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 text-slate-600 font-bold text-sm flex flex-col items-center gap-1.5 transition-all active:scale-95">
+            <i class="fa fa-image text-xl"></i><span>ライブラリから選択</span>
+          </button>
+        </div>
+        <input type="file" id="photo-input-camera"  accept="image/*" capture="environment" class="hidden" onchange="handlePhoto(this)">
+        <input type="file" id="photo-input-gallery" accept="image/*"                        class="hidden" onchange="handlePhoto(this)">
+        <div id="photo-preview-wrap" class="hidden">
+          <div class="relative rounded-2xl overflow-hidden bg-slate-100" style="max-height:240px;">
+            <img id="photo-preview-img" src="" alt="撮影写真" class="w-full object-cover" style="max-height:240px;">
+            <button onclick="removePhoto()" type="button"
+              class="absolute top-2 right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg btn-tap">
+              <i class="fa fa-xmark text-sm"></i>
+            </button>
+          </div>
+          <p class="text-xs text-slate-400 mt-2 text-center" id="photo-filename"></p>
+        </div>
+        <p class="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2" id="photo-notice" style="display:none">
+          <i class="fa fa-triangle-exclamation mr-1"></i>
+          Google Drive未設定のため、写真はD1のURLフィールドには保存されません。
+        </p>
+      </div>
+
       <!-- 送信ボタン -->
       <button onclick="submitInspection()" id="submit-btn"
         class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95 shadow-sm"
@@ -675,6 +1017,8 @@ app.get('/inspect/:qrId', async (c) => {
       <div id="result-icon" class="text-5xl"></div>
       <p id="result-title" class="text-xl font-bold text-slate-800"></p>
       <p id="result-sub" class="text-sm text-slate-500 leading-relaxed"></p>
+      <div id="result-photo-link"></div>
+      <div id="result-google-err"></div>
       <button onclick="location.reload()"
         class="btn-tap w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-sm transition-all">
         もう一度点検する
@@ -748,6 +1092,33 @@ app.get('/inspect/:qrId', async (c) => {
       itemComments[idx] = val;
     }
 
+    // ── 写真 ──
+    let photoBase64 = null, photoMimeType = null;
+    function openCamera()  { document.getElementById('photo-input-camera').click(); }
+    function openGallery() { document.getElementById('photo-input-gallery').click(); }
+    function handlePhoto(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const fr = new FileReader();
+      fr.onload = (e) => {
+        const [, b64] = e.target.result.split(',');
+        photoBase64 = b64; photoMimeType = file.type || 'image/jpeg';
+        document.getElementById('photo-preview-img').src = e.target.result;
+        document.getElementById('photo-filename').textContent = file.name + ' (' + (file.size/1024).toFixed(1) + ' KB)';
+        document.getElementById('photo-preview-wrap').classList.remove('hidden');
+      };
+      fr.readAsDataURL(file);
+      input.value = '';
+    }
+    function removePhoto() {
+      photoBase64 = null; photoMimeType = null;
+      document.getElementById('photo-preview-wrap').classList.add('hidden');
+      document.getElementById('photo-preview-img').src = '';
+    }
+    fetch('/api/google-status').then(r=>r.json()).then(d=>{
+      if (!d.configured) document.getElementById('photo-notice').style.display='block';
+    }).catch(()=>{});
+
     // ── 送信 ──
     async function submitInspection() {
       const teacherId = document.getElementById('teacher-select').value;
@@ -765,28 +1136,25 @@ app.get('/inspect/:qrId', async (c) => {
       </svg> 保存中...\`;
 
       const items = INSPECT_ITEMS.map((title, i) => ({
-        id: String(i + 1),
-        title,
-        status: itemStatuses[i],
-        comment: itemComments[i],
+        id: String(i + 1), title,
+        status: itemStatuses[i], comment: itemComments[i],
       }));
 
       try {
+        const payload = {
+          resourceId: RESOURCE_ID, teacherId, overallStatus, items,
+          generalComment: document.getElementById('general-comment').value.trim(),
+          date: new Date().toISOString(),
+          ...(photoBase64 ? { photoBase64, photoMimeType } : {}),
+        };
         const res = await fetch('/api/inspection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            resourceId: RESOURCE_ID,
-            teacherId,
-            overallStatus,
-            items,
-            generalComment: document.getElementById('general-comment').value.trim(),
-            date: new Date().toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
         if (data.success) {
-          showResult(true, overallStatus);
+          showResult(true, overallStatus, null, data.photoUrl, data.googleErrors);
         } else {
           showResult(false, null, data.message);
         }
@@ -796,7 +1164,7 @@ app.get('/inspect/:qrId', async (c) => {
     }
 
     // ── 結果表示 ──
-    function showResult(success, status, errMsg) {
+    function showResult(success, status, errMsg, photoUrl, googleErrors) {
       document.getElementById('inspect-form').classList.add('hidden');
       const section = document.getElementById('result-section');
       section.classList.remove('hidden');
@@ -812,6 +1180,14 @@ app.get('/inspect/:qrId', async (c) => {
         document.getElementById('result-icon').textContent  = iconMap[status]  || '✅';
         document.getElementById('result-title').textContent = titleMap[status] || '点検完了';
         document.getElementById('result-sub').textContent   = subMap[status]   || '記録を保存しました。';
+        const pl = document.getElementById('result-photo-link');
+        if (pl) pl.innerHTML = photoUrl
+          ? \`<a href="\${photoUrl}" target="_blank" rel="noopener" class="inline-flex items-center gap-2 text-sm text-indigo-600 underline font-semibold"><i class="fa fa-image"></i> 写真をDriveで確認</a>\`
+          : '';
+        const ge = document.getElementById('result-google-err');
+        if (ge && googleErrors && googleErrors.length > 0) {
+          ge.innerHTML = \`<div class="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2 text-left"><i class="fa fa-triangle-exclamation mr-1"></i>D1保存は完了しましたがGoogle連携でエラー:<br>\${googleErrors.join('<br>')}</div>\`;
+        } else if (ge) ge.innerHTML = '';
       } else {
         document.getElementById('result-icon').textContent  = '❌';
         document.getElementById('result-title').textContent = 'エラーが発生しました';
@@ -1119,6 +1495,50 @@ app.get('/scan/:qrId', async (c) => {
             class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 transition-all resize-none"></textarea>
         </div>
 
+        <!-- 写真撮影 -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+          <h2 class="font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa fa-camera text-indigo-500"></i> 写真撮影
+            <span class="text-xs font-normal text-slate-400">（危険箇所・問題点を撮影・任意）</span>
+          </h2>
+
+          <!-- 撮影/選択ボタン -->
+          <div class="grid grid-cols-2 gap-3">
+            <button onclick="openCamera()" type="button"
+              class="btn-tap py-3.5 rounded-2xl border-2 border-dashed border-indigo-300 bg-indigo-50 text-indigo-600 font-bold text-sm flex flex-col items-center gap-1.5 transition-all active:scale-95">
+              <i class="fa fa-camera text-xl"></i>
+              <span>カメラで撮影</span>
+            </button>
+            <button onclick="openGallery()" type="button"
+              class="btn-tap py-3.5 rounded-2xl border-2 border-dashed border-slate-300 bg-slate-50 text-slate-600 font-bold text-sm flex flex-col items-center gap-1.5 transition-all active:scale-95">
+              <i class="fa fa-image text-xl"></i>
+              <span>ライブラリから選択</span>
+            </button>
+          </div>
+          <!-- 隠しファイルinput（カメラ） -->
+          <input type="file" id="photo-input-camera"  accept="image/*" capture="environment" class="hidden" onchange="handlePhoto(this)">
+          <!-- 隠しファイルinput（ライブラリ） -->
+          <input type="file" id="photo-input-gallery" accept="image/*"                        class="hidden" onchange="handlePhoto(this)">
+
+          <!-- プレビュー -->
+          <div id="photo-preview-wrap" class="hidden">
+            <div class="relative rounded-2xl overflow-hidden bg-slate-100" style="max-height:240px;">
+              <img id="photo-preview-img" src="" alt="撮影写真" class="w-full object-cover" style="max-height:240px;">
+              <button onclick="removePhoto()" type="button"
+                class="absolute top-2 right-2 w-8 h-8 rounded-full bg-red-500 text-white flex items-center justify-center shadow-lg btn-tap">
+                <i class="fa fa-xmark text-sm"></i>
+              </button>
+            </div>
+            <p class="text-xs text-slate-400 mt-2 text-center" id="photo-filename"></p>
+          </div>
+
+          <!-- Google Drive連携なし時の注意 -->
+          <p class="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2" id="photo-notice" style="display:none">
+            <i class="fa fa-triangle-exclamation mr-1"></i>
+            Google Drive未設定のため、写真はこの端末にのみ保存されます。
+          </p>
+        </div>
+
         <!-- 送信ボタン -->
         <button onclick="submitInspection()" id="submit-inspect-btn"
           class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95 shadow-sm"
@@ -1133,6 +1553,8 @@ app.get('/scan/:qrId', async (c) => {
         <div id="inspect-result-icon" class="text-5xl"></div>
         <p id="inspect-result-title" class="text-xl font-bold text-slate-800"></p>
         <p id="inspect-result-sub" class="text-sm text-slate-500 leading-relaxed"></p>
+        <div id="inspect-result-photo-link"></div>
+        <div id="inspect-result-google-err"></div>
         <button onclick="resetInspect()"
           class="btn-tap w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-sm transition-all">
           もう一度点検する
@@ -1345,6 +1767,47 @@ app.get('/scan/:qrId', async (c) => {
     const itemStatuses = INSPECT_ITEMS.map(() => 'ok');
     const itemComments = INSPECT_ITEMS.map(() => '');
 
+    // ── 写真撮影 ──
+    let photoBase64  = null;
+    let photoMimeType = null;
+
+    function openCamera()  { document.getElementById('photo-input-camera').click(); }
+    function openGallery() { document.getElementById('photo-input-gallery').click(); }
+
+    function handlePhoto(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const dataUrl = e.target.result;
+        // dataUrl = "data:image/jpeg;base64,xxxx"
+        const [header, b64] = dataUrl.split(',');
+        photoBase64   = b64;
+        photoMimeType = file.type || 'image/jpeg';
+
+        document.getElementById('photo-preview-img').src = dataUrl;
+        document.getElementById('photo-filename').textContent = file.name + ' (' + (file.size / 1024).toFixed(1) + ' KB)';
+        document.getElementById('photo-preview-wrap').classList.remove('hidden');
+      };
+      reader.readAsDataURL(file);
+      // inputをリセット（同じファイルを再選択できるよう）
+      input.value = '';
+    }
+
+    function removePhoto() {
+      photoBase64   = null;
+      photoMimeType = null;
+      document.getElementById('photo-preview-wrap').classList.add('hidden');
+      document.getElementById('photo-preview-img').src = '';
+    }
+
+    // Google Drive設定状況を確認してnoticeを表示
+    fetch('/api/google-status').then(r => r.json()).then(d => {
+      if (!d.configured) {
+        document.getElementById('photo-notice').style.display = 'block';
+      }
+    }).catch(() => {});
+
     // 総合評価ボタン スタイル
     const OVERALL_STYLES = {
       ok:      { active: 'border-emerald-300 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300', inactive: 'border-slate-200 bg-white text-slate-500' },
@@ -1402,27 +1865,29 @@ app.get('/scan/:qrId', async (c) => {
       }));
 
       try {
+        const payload = {
+          resourceId: RESOURCE_ID,
+          teacherId,
+          overallStatus,
+          items,
+          generalComment: document.getElementById('general-comment').value.trim(),
+          date: new Date().toISOString(),
+          ...(photoBase64 ? { photoBase64, photoMimeType } : {}),
+        };
         const res = await fetch('/api/inspection', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            resourceId: RESOURCE_ID,
-            teacherId,
-            overallStatus,
-            items,
-            generalComment: document.getElementById('general-comment').value.trim(),
-            date: new Date().toISOString(),
-          }),
+          body: JSON.stringify(payload),
         });
         const data = await res.json();
-        showInspectResult(data.success, overallStatus, data.message);
+        showInspectResult(data.success, overallStatus, data.message, data.photoUrl, data.googleErrors);
       } catch(e) {
         showInspectResult(false, null, 'ネットワークエラーが発生しました。再度お試しください。');
       }
     }
 
     // 結果表示
-    function showInspectResult(success, status, errMsg) {
+    function showInspectResult(success, status, errMsg, photoUrl, googleErrors) {
       document.getElementById('inspect-form').classList.add('hidden');
       const section = document.getElementById('inspect-result-section');
       section.classList.remove('hidden');
@@ -1437,6 +1902,30 @@ app.get('/scan/:qrId', async (c) => {
         document.getElementById('inspect-result-icon').textContent  = iconMap[status]  || '✅';
         document.getElementById('inspect-result-title').textContent = titleMap[status] || '点検完了';
         document.getElementById('inspect-result-sub').textContent   = subMap[status]   || '記録を保存しました。';
+
+        // 写真のDriveリンク表示
+        const photoLinkEl = document.getElementById('inspect-result-photo-link');
+        if (photoLinkEl) {
+          if (photoUrl) {
+            photoLinkEl.innerHTML = \`<a href="\${photoUrl}" target="_blank" rel="noopener"
+              class="inline-flex items-center gap-2 text-sm text-indigo-600 underline font-semibold">
+              <i class="fa fa-image"></i> 写真をDriveで確認
+            </a>\`;
+          } else {
+            photoLinkEl.innerHTML = '';
+          }
+        }
+        // Google連携エラーがあれば警告表示
+        const gErrEl = document.getElementById('inspect-result-google-err');
+        if (gErrEl && googleErrors && googleErrors.length > 0) {
+          gErrEl.innerHTML = \`<div class="text-xs text-amber-600 bg-amber-50 rounded-xl px-3 py-2 text-left">
+            <i class="fa fa-triangle-exclamation mr-1"></i>
+            D1への保存は完了しましたが、Google連携でエラーが発生しました:<br>
+            \${googleErrors.join('<br>')}
+          </div>\`;
+        } else if (gErrEl) {
+          gErrEl.innerHTML = '';
+        }
       } else {
         document.getElementById('inspect-result-icon').textContent  = '❌';
         document.getElementById('inspect-result-title').textContent = 'エラーが発生しました';
@@ -1452,6 +1941,7 @@ app.get('/scan/:qrId', async (c) => {
       setOverall('ok');
       INSPECT_ITEMS.forEach((_, i) => setItemStatus(i, 'ok'));
       document.getElementById('general-comment').value = '';
+      removePhoto();
       document.getElementById('inspect-form').classList.remove('hidden');
       document.getElementById('inspect-result-section').classList.add('hidden');
       const btn = document.getElementById('submit-inspect-btn');
