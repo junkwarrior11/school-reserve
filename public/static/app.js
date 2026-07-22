@@ -57,10 +57,44 @@ function getTeacher(id) { return state.teachers.find(t => t.id === id); }
 function getResource(id) { return state.resources.find(r => r.id === id); }
 
 // ─── QR Code ────────────────────────────────────────────────
-async function generateQRDataURL(text, size = 200) {
+// qrcodejs@1.0.0: new QRCode(element, options) でCanvas描画 → toDataURL取得
+function generateQRDataURL(text, size = 200) {
   return new Promise((resolve, reject) => {
-    QRCode.toDataURL(text, { width: size, margin: 2, color: { dark: '#1e293b', light: '#ffffff' } },
-      (err, url) => err ? reject(err) : resolve(url));
+    try {
+      // 隠しコンテナを作成
+      const container = document.createElement('div');
+      container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+      document.body.appendChild(container);
+
+      const qr = new QRCode(container, {
+        text: text,
+        width: size,
+        height: size,
+        colorDark: '#1e293b',
+        colorLight: '#ffffff',
+        correctLevel: QRCode.CorrectLevel.M,
+      });
+
+      // Canvas描画は同期的に完了するが念のためrAFで1フレーム待つ
+      requestAnimationFrame(() => {
+        try {
+          const canvas = container.querySelector('canvas');
+          if (canvas) {
+            resolve(canvas.toDataURL('image/png'));
+          } else {
+            // img要素のみの環境（IE等）
+            const img = container.querySelector('img');
+            resolve(img ? img.src : '');
+          }
+        } catch(e) {
+          reject(e);
+        } finally {
+          document.body.removeChild(container);
+        }
+      });
+    } catch(e) {
+      reject(e);
+    }
   });
 }
 

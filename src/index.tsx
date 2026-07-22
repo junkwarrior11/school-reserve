@@ -618,23 +618,48 @@ app.get('/print-qr', async (c) => {
 
     function generateOne(r) {
       return new Promise(resolve => {
-        QRCode.toDataURL(r.qr, {
-          width: 300, margin: 2,
-          color: { dark: '#1e293b', light: '#ffffff' }
-        }, (err, url) => {
+        try {
+          // qrcodejs: 隠しコンテナに描画 → canvas.toDataURL() で取得
+          const container = document.createElement('div');
+          container.style.cssText = 'position:absolute;left:-9999px;top:-9999px;visibility:hidden;';
+          document.body.appendChild(container);
+          new QRCode(container, {
+            text: r.qr,
+            width: 300, height: 300,
+            colorDark: '#1e293b', colorLight: '#ffffff',
+            correctLevel: QRCode.CorrectLevel.M,
+          });
+          requestAnimationFrame(() => {
+            try {
+              const canvas = container.querySelector('canvas');
+              const url = canvas ? canvas.toDataURL('image/png') : '';
+              document.body.removeChild(container);
+              const imgWrap = document.getElementById('img-' + r.id);
+              const dlBtn   = document.getElementById('dl-'  + r.id);
+              if (url) {
+                qrDataURLs[r.id] = url;
+                if (imgWrap) imgWrap.innerHTML = '<img src="' + url + '" alt="QR" style="width:136px;height:136px;">';
+                if (dlBtn)   dlBtn.disabled = false;
+              } else {
+                if (imgWrap) imgWrap.innerHTML =
+                  '<div style="width:136px;height:136px;display:flex;align-items:center;justify-content:center;' +
+                  'background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;text-align:center;padding:8px">生成エラー</div>';
+              }
+            } catch(e2) {
+              const imgWrap = document.getElementById('img-' + r.id);
+              if (imgWrap) imgWrap.innerHTML =
+                '<div style="width:136px;height:136px;display:flex;align-items:center;justify-content:center;' +
+                'background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;text-align:center;padding:8px">エラー: ' + e2.message + '</div>';
+            }
+            resolve();
+          });
+        } catch(e) {
           const imgWrap = document.getElementById('img-' + r.id);
-          const dlBtn   = document.getElementById('dl-'  + r.id);
-          if (!err) {
-            qrDataURLs[r.id] = url;
-            if (imgWrap) imgWrap.innerHTML = '<img src="' + url + '" alt="QR">';
-            if (dlBtn)   dlBtn.disabled = false;
-          } else {
-            if (imgWrap) imgWrap.innerHTML =
-              '<div style="width:136px;height:136px;display:flex;align-items:center;justify-content:center;' +
-              'background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;text-align:center;padding:8px">生成エラー</div>';
-          }
+          if (imgWrap) imgWrap.innerHTML =
+            '<div style="width:136px;height:136px;display:flex;align-items:center;justify-content:center;' +
+            'background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;text-align:center;padding:8px">エラー: ' + e.message + '</div>';
           resolve();
-        });
+        }
       });
     }
 
@@ -685,7 +710,7 @@ app.get('/print-qr', async (c) => {
     }
     async function boot() {
       try {
-        await loadScript('https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js');
         await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
         generateAll();
       } catch(e) {
@@ -709,7 +734,7 @@ app.get('*', (c) => {
   <title>School-Trace | 学校QR管理システム</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcodejs@1.0.0/qrcode.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.js"></script>
   <link rel="stylesheet" href="/style.css">
 </head>
