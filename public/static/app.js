@@ -103,7 +103,8 @@ async function showQRModal(resourceId) {
   if (!r) return;
   const qrCodeId = r.qr_code_id || r.id;
   // QRにはスキャンランディングページのURLを埋め込む
-  const qrValue = `${location.origin}/scan/${qrCodeId}`;
+  const scanUrl    = `${location.origin}/scan/${qrCodeId}`;
+  const inspectUrl = `${location.origin}/inspect/${qrCodeId}`;
 
   // ローディング表示してから生成
   showModal(`
@@ -119,7 +120,18 @@ async function showQRModal(resourceId) {
         </div>
       </div>
       <p class="text-xs text-slate-400 font-mono break-all">${qrCodeId}</p>
-      <p class="text-[10px] text-indigo-400 break-all">スキャンするとランディングページが開きます</p>
+      <!-- QR種別切り替えタブ -->
+      <div class="flex gap-1 bg-slate-100 rounded-xl p-1 text-xs">
+        <button id="qr-tab-scan" onclick="switchQRTab('scan','${qrCodeId}')"
+          class="flex-1 py-1.5 rounded-lg font-bold bg-white text-slate-800 shadow-sm transition-all">
+          <i class="fa fa-qrcode mr-1"></i>貸出/返却
+        </button>
+        <button id="qr-tab-inspect" onclick="switchQRTab('inspect','${qrCodeId}')"
+          class="flex-1 py-1.5 rounded-lg font-bold text-slate-500 hover:text-slate-700 transition-all">
+          <i class="fa fa-shield-halved mr-1"></i>安全点検
+        </button>
+      </div>
+      <p id="qr-tab-note" class="text-[10px] text-indigo-400">スキャンで貸出/返却ページが開きます</p>
       <div class="flex gap-3 pt-1" id="qr-modal-btns">
         <button onclick="closeModal()" class="btn-secondary flex-1">閉じる</button>
         <button disabled class="btn-primary flex-1 opacity-40" id="qr-dl-btn">
@@ -129,9 +141,51 @@ async function showQRModal(resourceId) {
     </div>
   `);
 
-  // 生成してDOMに差し込む
+  // 現在選択中のQRタイプを保持（タブ切り替え用）
+  window._qrModalCodeId = qrCodeId;
+  window._qrModalResourceName = r.name;
+  window._qrModalCurrentTab = 'scan';
+
+  // 初期QR生成（貸出/返却URL）
+  await _generateAndSetQR(scanUrl, r.name);
+}
+
+// QRモーダルのタブ切り替え
+async function switchQRTab(tab, qrCodeId) {
+  window._qrModalCurrentTab = tab;
+  const isScan = tab === 'scan';
+  const qrUrl  = isScan
+    ? `${location.origin}/scan/${qrCodeId}`
+    : `${location.origin}/inspect/${qrCodeId}`;
+  const note = isScan
+    ? 'スキャンで貸出/返却ページが開きます'
+    : 'スキャンで安全点検ページが開きます';
+
+  // タブボタンのスタイル切り替え
+  const btnScan    = document.getElementById('qr-tab-scan');
+  const btnInspect = document.getElementById('qr-tab-inspect');
+  if (btnScan)    { btnScan.className    = isScan  ? 'flex-1 py-1.5 rounded-lg font-bold bg-white text-slate-800 shadow-sm transition-all' : 'flex-1 py-1.5 rounded-lg font-bold text-slate-500 hover:text-slate-700 transition-all'; }
+  if (btnInspect) { btnInspect.className = !isScan ? 'flex-1 py-1.5 rounded-lg font-bold bg-white text-slate-800 shadow-sm transition-all' : 'flex-1 py-1.5 rounded-lg font-bold text-slate-500 hover:text-slate-700 transition-all'; }
+
+  const noteEl = document.getElementById('qr-tab-note');
+  if (noteEl) noteEl.textContent = note;
+
+  // ローディング表示
+  const imgEl = document.getElementById('qr-modal-img');
+  if (imgEl) imgEl.innerHTML = '<div class="animate-spin w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full"></div>';
+
+  const dlBtn = document.getElementById('qr-dl-btn');
+  if (dlBtn) { dlBtn.disabled = true; dlBtn.classList.add('opacity-40'); }
+
+  const resourceName = window._qrModalResourceName || 'QR';
+  await _generateAndSetQR(qrUrl, resourceName);
+}
+window.switchQRTab = switchQRTab;
+
+// QR生成してモーダルのimgとDLボタンを更新する共通処理
+async function _generateAndSetQR(qrUrl, resourceName) {
   try {
-    const dataUrl = await generateQRDataURL(qrValue, 240);
+    const dataUrl = await generateQRDataURL(qrUrl, 240);
     const imgEl = document.getElementById('qr-modal-img');
     const dlBtn = document.getElementById('qr-dl-btn');
     if (imgEl) {
@@ -140,10 +194,11 @@ async function showQRModal(resourceId) {
     if (dlBtn) {
       dlBtn.disabled = false;
       dlBtn.classList.remove('opacity-40');
+      const tab = window._qrModalCurrentTab || 'scan';
       dlBtn.onclick = () => {
         const a = document.createElement('a');
         a.href = dataUrl;
-        a.download = `${r.name}_QR.png`;
+        a.download = `${resourceName}_${tab === 'scan' ? '貸出返却' : '安全点検'}_QR.png`;
         a.click();
       };
     }
