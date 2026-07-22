@@ -101,7 +101,9 @@ function generateQRDataURL(text, size = 200) {
 async function showQRModal(resourceId) {
   const r = getResource(resourceId);
   if (!r) return;
-  const qrValue = r.qr_code_id || r.id;
+  const qrCodeId = r.qr_code_id || r.id;
+  // QRにはスキャンランディングページのURLを埋め込む
+  const qrValue = `${location.origin}/scan/${qrCodeId}`;
 
   // ローディング表示してから生成
   showModal(`
@@ -116,7 +118,8 @@ async function showQRModal(resourceId) {
           <div class="animate-spin w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full"></div>
         </div>
       </div>
-      <p class="text-xs text-slate-400 font-mono break-all">${qrValue}</p>
+      <p class="text-xs text-slate-400 font-mono break-all">${qrCodeId}</p>
+      <p class="text-[10px] text-indigo-400 break-all">スキャンするとランディングページが開きます</p>
       <div class="flex gap-3 pt-1" id="qr-modal-btns">
         <button onclick="closeModal()" class="btn-secondary flex-1">閉じる</button>
         <button disabled class="btn-primary flex-1 opacity-40" id="qr-dl-btn">
@@ -1477,18 +1480,20 @@ async function submitRegister() {
     document.getElementById('reg-subject').value = '共通';
     await fetchData();
 
-    // 登録後QR表示
+    // 登録後QR表示（QRにはスキャンURLを埋め込む）
     const newResource = res.resource;
-    const qrValue = newResource?.qr_code_id || newResource?.id;
+    const qrCodeId = newResource?.qr_code_id || newResource?.id;
+    const qrValue  = `${location.origin}/scan/${qrCodeId}`;
     const resultArea = document.getElementById('reg-qr-result');
     const nameLabel  = document.getElementById('reg-qr-name');
     const canvas     = document.getElementById('reg-qr-canvas');
     const dlArea     = document.getElementById('reg-qr-download');
-    if (resultArea && qrValue) {
+    if (resultArea && qrCodeId) {
       nameLabel.textContent = name;
       resultArea.classList.remove('hidden');
       const dataUrl = await generateQRDataURL(qrValue, 180);
-      canvas.innerHTML = `<img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 shadow-sm" style="width:180px;height:180px;">`;
+      canvas.innerHTML = `<img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 shadow-sm" style="width:180px;height:180px;">
+        <p class="text-xs text-slate-400 mt-2 break-all font-mono">${qrCodeId}</p>`;
       dlArea.innerHTML = `<a href="${dataUrl}" download="${name}_QR.png" class="btn-primary flex items-center gap-2 px-4 py-2 rounded-xl text-sm"><i class="fa fa-download"></i> QRをダウンロード</a>`;
     }
     toast(`「${name}」を登録しました`, 'success');

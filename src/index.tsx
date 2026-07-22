@@ -439,6 +439,351 @@ app.post('/api/resources/quick-register', async (c) => {
   return c.json({ success: true, resource: row })
 })
 
+// ─── QR Scan Landing Page ────────────────────────────────────────────────────
+// スマホカメラでQRを読み取ると開くページ
+// URL例: https://school-reserve.pages.dev/scan/QR_xxx
+
+app.get('/scan/:qrId', async (c) => {
+  const db = c.env.DB
+  const qrId = c.req.param('qrId')
+
+  // リソース取得
+  const resource = await db.prepare(
+    'SELECT * FROM resources WHERE qr_code_id = ? OR id = ?'
+  ).bind(qrId, qrId).first() as any
+
+  // 教員一覧
+  const teachersRes = await db.prepare('SELECT * FROM teachers ORDER BY created_at ASC').all()
+  const teachers = teachersRes.results as any[]
+
+  const teacherOptions = teachers.map(t =>
+    `<option value="${t.id}">${t.name}（${t.department}）</option>`
+  ).join('')
+
+  const baseUrl = new URL(c.req.url).origin
+
+  if (!resource) {
+    // リソースが見つからない場合
+    return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>QR不明 | School-Trace</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-slate-100 min-h-screen flex items-center justify-center p-4">
+  <div class="bg-white rounded-3xl shadow-lg p-8 max-w-sm w-full text-center space-y-4">
+    <div class="w-16 h-16 bg-red-100 rounded-2xl flex items-center justify-center mx-auto">
+      <span class="text-3xl">❓</span>
+    </div>
+    <h1 class="text-xl font-bold text-slate-800">QRコードが見つかりません</h1>
+    <p class="text-sm text-slate-500">QRコードID: <code class="bg-slate-100 px-1 rounded text-xs">${qrId}</code></p>
+    <a href="${baseUrl}" class="inline-block w-full py-3 bg-indigo-600 text-white rounded-2xl font-bold text-sm">
+      管理アプリを開く
+    </a>
+  </div>
+</body>
+</html>`)
+  }
+
+  const categoryLabel = resource.category === 'classroom' ? '教室' : '備品'
+  const categoryIcon  = resource.category === 'classroom' ? '🏫' : '📦'
+  const statusMap: Record<string, [string, string]> = {
+    available:   ['#d1fae5', '✅ 利用可能'],
+    checked_out: ['#e0e7ff', '📌 使用中'],
+    maintenance: ['#fef3c7', '🔧 整備中'],
+  }
+  const [statusBg, statusLabel] = statusMap[resource.status] || ['#f1f5f9', resource.status]
+
+  return c.html(`<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>${resource.name} | School-Trace</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.5.0/css/all.min.css">
+  <style>
+    body { font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', system-ui, sans-serif; }
+    @keyframes fadeIn { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+    .fade-in { animation: fadeIn .35s ease-out; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner { animation: spin .7s linear infinite; }
+    .btn-tap { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
+    select { -webkit-appearance: none; appearance: none; }
+  </style>
+</head>
+<body class="bg-slate-100 min-h-screen">
+
+  <!-- ヘッダー -->
+  <header class="bg-indigo-700 text-white px-4 py-3 flex items-center justify-between sticky top-0 z-20 shadow-md">
+    <div class="flex items-center gap-2">
+      <span class="text-lg">📋</span>
+      <span class="font-bold text-sm">School-Trace</span>
+    </div>
+    <a href="${baseUrl}" class="text-xs bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded-xl font-semibold transition-all btn-tap">
+      管理画面 →
+    </a>
+  </header>
+
+  <main class="max-w-lg mx-auto px-4 py-6 space-y-4 fade-in">
+
+    <!-- リソース情報カード -->
+    <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
+      <div class="flex items-center gap-4">
+        <div class="w-14 h-14 rounded-2xl flex items-center justify-center text-3xl shrink-0"
+             style="background: ${resource.category === 'classroom' ? '#dbeafe' : '#f3e8ff'}">
+          ${categoryIcon}
+        </div>
+        <div class="flex-1 min-w-0">
+          <p class="text-xs font-semibold text-slate-400 uppercase tracking-wide">${categoryLabel}</p>
+          <h1 class="text-2xl font-bold text-slate-900 leading-tight">${resource.name}</h1>
+          ${resource.location ? `<p class="text-sm text-slate-500 mt-0.5"><i class="fa fa-location-dot mr-1 text-slate-400"></i>${resource.location}</p>` : ''}
+        </div>
+      </div>
+
+      <!-- 現在の状態 -->
+      <div class="mt-4 rounded-2xl px-4 py-3 flex items-center justify-between" style="background:${statusBg}">
+        <span class="font-bold text-sm text-slate-700">現在の状態</span>
+        <span class="font-bold text-sm">${statusLabel}</span>
+      </div>
+
+      <!-- 使用中の場合：誰が使っているか -->
+      <div id="current-user-section" class="${resource.status === 'checked_out' && resource.current_teacher_id ? '' : 'hidden'} mt-3 bg-indigo-50 rounded-2xl px-4 py-3">
+        <p class="text-xs text-indigo-500 font-semibold mb-1">現在の使用者</p>
+        <p class="text-base font-bold text-indigo-800" id="current-user-name">
+          ${resource.current_teacher_id
+            ? (teachers.find(t => t.id === resource.current_teacher_id)?.name || '不明')
+            : ''}
+        </p>
+      </div>
+    </div>
+
+    <!-- 操作フォーム -->
+    <div id="action-form" class="${resource.status === 'maintenance' ? 'hidden' : ''} bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-4">
+      <h2 class="font-bold text-slate-800 flex items-center gap-2">
+        <i class="fa fa-hand-pointer text-indigo-500"></i>
+        操作する
+      </h2>
+
+      <!-- 教員選択 -->
+      <div>
+        <label class="block text-xs font-semibold text-slate-500 mb-2">あなたは誰ですか？</label>
+        <div class="relative">
+          <select id="teacher-select"
+            class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 text-base font-semibold text-slate-800 focus:outline-none focus:border-indigo-400 pr-10">
+            <option value="">教員を選んでください</option>
+            ${teacherOptions}
+          </select>
+          <i class="fa fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-sm"></i>
+        </div>
+      </div>
+
+      <!-- アクションボタン -->
+      <div id="action-buttons" class="space-y-3">
+        <!-- JS で動的に表示 -->
+        <p class="text-sm text-slate-400 text-center py-2">↑ 教員を選択してください</p>
+      </div>
+    </div>
+
+    <!-- 整備中メッセージ -->
+    ${resource.status === 'maintenance' ? `
+    <div class="bg-amber-50 border border-amber-200 rounded-3xl p-5 text-center space-y-2">
+      <p class="text-3xl">🔧</p>
+      <p class="font-bold text-amber-800">現在整備中です</p>
+      <p class="text-sm text-amber-600">整備が完了するまでご利用いただけません。</p>
+    </div>` : ''}
+
+    <!-- 結果表示 -->
+    <div id="result-section" class="hidden fade-in bg-white rounded-3xl shadow-sm border border-slate-100 p-5 text-center space-y-3">
+      <div id="result-icon" class="text-5xl"></div>
+      <p id="result-message" class="text-lg font-bold text-slate-800"></p>
+      <p id="result-sub" class="text-sm text-slate-500"></p>
+      <button onclick="resetForm()"
+        class="w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-sm transition-all btn-tap mt-2">
+        別の操作をする
+      </button>
+      <a href="${baseUrl}"
+        class="block w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all btn-tap">
+        管理画面を開く
+      </a>
+    </div>
+
+    <!-- 最近の利用履歴 -->
+    <div id="history-section" class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
+      <h3 class="font-bold text-slate-700 text-sm flex items-center gap-2 mb-3">
+        <i class="fa fa-clock-rotate-left text-slate-400"></i>
+        最近の利用履歴
+      </h3>
+      <div id="history-list" class="space-y-2 text-sm text-slate-400 text-center py-2">
+        読み込み中...
+      </div>
+    </div>
+
+  </main>
+
+  <script>
+    const RESOURCE_ID = '${resource.id}';
+    const QR_ID       = '${qrId}';
+    const RESOURCE_STATUS = '${resource.status}';
+    const CURRENT_TEACHER_ID = '${resource.current_teacher_id || ''}';
+
+    // ── 教員選択 → ボタン表示 ──
+    const sel = document.getElementById('teacher-select');
+    sel.addEventListener('change', updateButtons);
+
+    function updateButtons() {
+      const teacherId = sel.value;
+      const container = document.getElementById('action-buttons');
+      if (!teacherId) {
+        container.innerHTML = '<p class="text-sm text-slate-400 text-center py-2">↑ 教員を選択してください</p>';
+        return;
+      }
+
+      if (RESOURCE_STATUS === 'available') {
+        container.innerHTML = \`
+          <button onclick="doAction('check_out')"
+            class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95"
+            style="background: linear-gradient(135deg, #6366f1, #4f46e5);">
+            <i class="fa fa-arrow-right-from-bracket text-lg"></i>
+            貸出・利用開始
+          </button>\`;
+      } else if (RESOURCE_STATUS === 'checked_out') {
+        if (teacherId === CURRENT_TEACHER_ID) {
+          container.innerHTML = \`
+            <button onclick="doAction('check_in')"
+              class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95"
+              style="background: linear-gradient(135deg, #10b981, #059669);">
+              <i class="fa fa-arrow-right-to-bracket text-lg"></i>
+              返却・利用終了
+            </button>\`;
+        } else {
+          container.innerHTML = \`
+            <button onclick="doAction('check_in')"
+              class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95"
+              style="background: linear-gradient(135deg, #10b981, #059669);">
+              <i class="fa fa-arrow-right-to-bracket text-lg"></i>
+              返却・利用終了
+            </button>
+            <button onclick="doAction('baton')"
+              class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95"
+              style="background: linear-gradient(135deg, #8b5cf6, #7c3aed);">
+              <i class="fa fa-arrows-left-right text-lg"></i>
+              引継ぎ（自分が使い続ける）
+            </button>\`;
+        }
+      }
+    }
+
+    // ── API呼び出し ──
+    async function doAction(action) {
+      const teacherId = document.getElementById('teacher-select').value;
+      if (!teacherId) return;
+
+      // ボタンをローディング状態に
+      const buttons = document.getElementById('action-buttons');
+      buttons.innerHTML = \`
+        <div class="flex items-center justify-center gap-3 py-5 text-indigo-600">
+          <svg class="spinner w-7 h-7 text-indigo-600" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+            <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+            <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+          </svg>
+          <span class="font-semibold text-base">処理中...</span>
+        </div>\`;
+
+      try {
+        const endpoint = '/api/nfc/tap';
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tagId: QR_ID, teacherId }),
+        });
+        const data = await res.json();
+        showResult(data.success, data.message, data.action);
+        if (data.success) loadHistory();
+      } catch (e) {
+        showResult(false, 'ネットワークエラーが発生しました。再度お試しください。', null);
+      }
+    }
+
+    // ── 結果表示 ──
+    function showResult(success, message, action) {
+      document.getElementById('action-form').classList.add('hidden');
+      const section = document.getElementById('result-section');
+      section.classList.remove('hidden');
+
+      const iconMap = {
+        check_out: '✅',
+        check_in:  '🔓',
+        baton:     '🤝',
+      };
+      const subMap = {
+        check_out: '利用を開始しました',
+        check_in:  '返却が完了しました',
+        baton:     '引継ぎを記録しました',
+      };
+      document.getElementById('result-icon').textContent = success ? (iconMap[action] || '✅') : '❌';
+      document.getElementById('result-message').textContent = message;
+      document.getElementById('result-sub').textContent = success ? (subMap[action] || '') : '';
+    }
+
+    // ── フォームリセット ──
+    function resetForm() {
+      location.reload();
+    }
+
+    // ── 履歴読み込み ──
+    async function loadHistory() {
+      try {
+        const data = await fetch('/api/data').then(r => r.json());
+        const history = (data.nfcHistory || []).filter(h => h.resource_id === RESOURCE_ID).slice(0, 8);
+        const teachers = data.teachers || [];
+        const list = document.getElementById('history-list');
+        if (history.length === 0) {
+          list.innerHTML = '<p class="text-sm text-slate-400 text-center py-2">利用履歴がありません</p>';
+          return;
+        }
+        const actionLabels = { check_out: '貸出', check_in: '返却', baton: '引継' };
+        const actionColors = { check_out: '#dbeafe', check_in: '#d1fae5', baton: '#ede9fe' };
+        list.innerHTML = history.map(h => {
+          const t = teachers.find(x => x.id === h.teacher_id);
+          const label = actionLabels[h.action] || h.action;
+          const color = actionColors[h.action] || '#f1f5f9';
+          const dt = new Date(h.timestamp).toLocaleString('ja-JP', {
+            month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit'
+          });
+          return \`<div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold px-2 py-0.5 rounded-full" style="background:\${color}">\${label}</span>
+              <span class="font-semibold text-slate-700 text-sm">\${t?.name || '不明'}</span>
+            </div>
+            <span class="text-xs text-slate-400">\${dt}</span>
+          </div>\`;
+        }).join('');
+      } catch(e) {}
+    }
+
+    // 初期ロード
+    loadHistory();
+  </script>
+</body>
+</html>`)
+})
+
+// ─── GET /api/resource/:qrId  (ランディングページ用JSON) ─────────────────────
+
+app.get('/api/resource/:qrId', async (c) => {
+  const db = c.env.DB
+  const qrId = c.req.param('qrId')
+  const resource = await db.prepare(
+    'SELECT * FROM resources WHERE qr_code_id = ? OR id = ?'
+  ).bind(qrId, qrId).first() as any
+  if (!resource) return c.json({ success: false, message: 'リソースが見つかりません' }, 404)
+  resource.custom_inspection_items = JSON.parse(resource.custom_inspection_items || '[]')
+  return c.json({ success: true, resource })
+})
+
 // ─── Print QR Page ───────────────────────────────────────────────────────────
 
 app.get('/print-qr', async (c) => {
@@ -449,13 +794,15 @@ app.get('/print-qr', async (c) => {
     : await db.prepare('SELECT id, name, category, location, qr_code_id FROM resources ORDER BY category ASC, name ASC').all()
 
   const rows = (resources.results as any[])
-  // data属性にJSON埋め込み（JS側で一括処理）
+  // QRコードにはスキャンランディングページのURLを埋め込む
+  const baseUrl = new URL(c.req.url).origin
   const cardsJson = JSON.stringify(rows.map(r => ({
     id: r.id,
     name: r.name,
     category: r.category,
     location: r.location || '',
-    qr: r.qr_code_id || r.id,
+    qrCodeId: r.qr_code_id || r.id,              // 表示用ID
+    qr: `${baseUrl}/scan/${r.qr_code_id || r.id}`, // QRに埋め込むURL
   })))
 
   return c.html(`<!DOCTYPE html>
@@ -585,7 +932,7 @@ app.get('/print-qr', async (c) => {
         '</button>' +
         '<div class="qr-label">' +
           '<div class="qr-name">' + r.name + '</div>' +
-          '<div class="qr-id">' + r.qr + '</div>' +
+          '<div class="qr-id">' + (r.qrCodeId || r.id) + '</div>' +
           (r.location ? '<div class="qr-loc">' + r.location + '</div>' : '') +
           '<span class="qr-cat-badge ' + (r.category==='classroom'?'cat-classroom':'cat-equipment') + '">' +
             (r.category==='classroom' ? '📚 教室' : '📦 備品') +
