@@ -211,39 +211,43 @@ function renderHeader() {
   const avatarBg = loggedTeacher ? (colors[loggedTeacher.color] || 'bg-indigo-500') : 'bg-slate-400';
   const sosCount = state.sosRequests.length;
   return `
-  <header class="h-16 bg-white border-b border-slate-200 flex items-center justify-between px-4 sm:px-6 shrink-0 z-20 shadow-sm sticky top-0">
-    <div class="flex items-center gap-3">
-      <div class="bg-indigo-600 p-2 rounded-xl text-white shadow-sm">
-        <i class="fa fa-clipboard-list text-base"></i>
+  <header class="h-14 md:h-16 bg-white border-b border-slate-200 flex items-center justify-between px-3 sm:px-6 shrink-0 z-20 shadow-sm sticky top-0">
+    <!-- ロゴ（スマホ・PC共通） -->
+    <div class="flex items-center gap-2">
+      <div class="bg-indigo-600 p-1.5 md:p-2 rounded-xl text-white shadow-sm">
+        <i class="fa fa-clipboard-list text-sm md:text-base"></i>
       </div>
       <div>
-        <h1 class="text-lg font-bold tracking-tight text-slate-800 leading-none">School-Trace</h1>
-        <span class="text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">学校QR管理システム</span>
+        <h1 class="text-base md:text-lg font-bold tracking-tight text-slate-800 leading-none">School-Trace</h1>
+        <span class="text-[9px] md:text-[10px] font-semibold text-indigo-500 uppercase tracking-wide">学校QR管理</span>
       </div>
     </div>
-    <div class="flex items-center gap-2 sm:gap-3">
-      ${sosCount > 0 ? `<button onclick="setTab('dashboard')" class="relative flex items-center gap-1 px-3 py-1.5 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600 hover:bg-red-100 transition-all">
+    <div class="flex items-center gap-1.5 md:gap-2">
+      <!-- SOS通知（スマホでもアイコンのみ表示） -->
+      ${sosCount > 0 ? `<button onclick="setTab('dashboard')" class="relative flex items-center gap-1 px-2 md:px-3 py-1.5 bg-red-50 border border-red-200 rounded-xl text-xs font-bold text-red-600 hover:bg-red-100 transition-all">
         <i class="fa fa-bell animate-bounce"></i>
-        <span class="hidden sm:inline">緊急呼び出し</span>
+        <span class="hidden md:inline">緊急呼び出し</span>
         <span class="absolute -top-1.5 -right-1.5 w-5 h-5 bg-red-500 text-white text-[10px] font-bold rounded-full flex items-center justify-center">${sosCount}</span>
       </button>` : ''}
-      <div class="bg-slate-100 p-1 rounded-xl border border-slate-200 flex items-center gap-1">
+      <!-- PC/スマホ切り替え（PCのみ表示） -->
+      <div class="hidden md:flex bg-slate-100 p-1 rounded-xl border border-slate-200 items-center gap-1">
         <button onclick="setViewMode('desktop')" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${state.viewMode==='desktop'?'bg-white text-slate-800 shadow-sm':'text-slate-500 hover:text-slate-700'}">
-          <i class="fa fa-desktop"></i><span class="hidden sm:inline ml-1">PC</span>
+          <i class="fa fa-desktop"></i><span class="ml-1">PC</span>
         </button>
         <button onclick="setViewMode('mobile')" class="flex items-center gap-1 px-2.5 py-1.5 rounded-lg text-xs font-bold transition-all ${state.viewMode==='mobile'?'bg-indigo-600 text-white shadow-sm':'text-slate-500 hover:text-indigo-600'}">
-          <i class="fa fa-mobile-screen"></i><span class="hidden sm:inline ml-1">スマホ</span>
+          <i class="fa fa-mobile-screen"></i><span class="ml-1">スマホ</span>
         </button>
       </div>
-      <div class="flex items-center gap-2 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1">
-        <i class="fa fa-user text-slate-400 text-xs"></i>
-        <select onchange="setLoggedTeacher(this.value)" class="bg-transparent border-none text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer max-w-[120px]">
+      <!-- 教員選択（スマホ: アバター+名前をコンパクト表示） -->
+      <div class="flex items-center gap-1.5 bg-slate-50 border border-slate-200 rounded-xl px-2 py-1.5">
+        <div class="w-6 h-6 rounded-full ${avatarBg} flex items-center justify-center text-white font-bold text-xs shrink-0">
+          ${loggedTeacher ? loggedTeacher.name[0] : '?'}
+        </div>
+        <select onchange="setLoggedTeacher(this.value)" class="bg-transparent border-none text-xs font-semibold text-slate-700 focus:outline-none cursor-pointer max-w-[80px] md:max-w-[140px]">
           ${state.teachers.map(t => `<option value="${t.id}" ${t.id===state.loggedInTeacherId?'selected':''}>${t.name}</option>`).join('')}
         </select>
       </div>
-      <div class="w-9 h-9 rounded-full ${avatarBg} flex items-center justify-center text-white font-bold text-sm shrink-0">
-        ${loggedTeacher ? loggedTeacher.name[0] : '?'}
-      </div>
+      <!-- 更新ボタン -->
       <button onclick="fetchData()" class="p-2 text-slate-400 hover:text-indigo-600 hover:bg-slate-100 rounded-lg transition-colors" title="更新">
         <i class="fa fa-rotate-right text-sm ${state.loading ? 'animate-spin text-indigo-500' : ''}"></i>
       </button>
@@ -275,7 +279,7 @@ function renderDesktop() {
         </button>
       `).join('')}
     </aside>
-    <main class="flex-1 overflow-y-auto p-4 sm:p-6">
+    <main class="flex-1 overflow-y-auto p-4 sm:p-6 pb-20 md:pb-6">
       <div class="max-w-6xl mx-auto">
         ${renderTabContent(state.activeTab)}
       </div>
@@ -285,18 +289,52 @@ function renderDesktop() {
 }
 
 function renderBottomNavMobile() {
-  const mobileTabs = TABS.slice(0, 5);
+  // メイン4タブ + 「その他」ボタン（残り4タブをポップアップで表示）
+  const mainTabs = TABS.slice(0, 4);
+  const moreTabs = TABS.slice(4);
+  const moreActive = moreTabs.some(t => t.id === state.activeTab);
   return `
-  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 flex items-center justify-around px-2 h-16 z-30 shadow-lg">
-    ${mobileTabs.map(t => `
-      <button onclick="setTab('${t.id}')" class="flex flex-col items-center gap-0.5 flex-1 py-1.5 transition-all rounded-lg
-        ${state.activeTab===t.id ? 'text-indigo-600' : 'text-slate-500'}">
-        <i class="fa ${t.icon} text-lg"></i>
-        <span class="text-[9px] font-semibold leading-none">${t.label.length>5?t.label.slice(0,5)+'…':t.label}</span>
+  <nav class="md:hidden fixed bottom-0 inset-x-0 bg-white border-t border-slate-200 z-30 shadow-lg" style="padding-bottom: env(safe-area-inset-bottom, 0px);">
+    <div class="flex items-stretch justify-around" style="height: 64px;">
+      ${mainTabs.map(t => `
+        <button onclick="setTab('${t.id}')" class="flex flex-col items-center justify-center gap-1 flex-1 px-1 transition-all
+          ${state.activeTab===t.id ? 'text-indigo-600 bg-indigo-50/60' : 'text-slate-500'}">
+          <i class="fa ${t.icon} text-xl"></i>
+          <span class="text-[10px] font-semibold leading-none">${t.label}</span>
+        </button>
+      `).join('')}
+      <!-- その他メニュー -->
+      <button onclick="toggleMoreMenu()" id="more-menu-btn" class="flex flex-col items-center justify-center gap-1 flex-1 px-1 transition-all
+        ${moreActive ? 'text-indigo-600 bg-indigo-50/60' : 'text-slate-500'}">
+        <i class="fa fa-ellipsis text-xl"></i>
+        <span class="text-[10px] font-semibold leading-none">その他</span>
       </button>
-    `).join('')}
+    </div>
+    <!-- その他ポップアップ -->
+    <div id="more-menu-popup" class="hidden absolute bottom-full right-0 left-0 bg-white border-t border-slate-200 shadow-xl">
+      <div class="grid grid-cols-4">
+        ${moreTabs.map(t => `
+          <button onclick="setTab('${t.id}');closeMoreMenu()" class="flex flex-col items-center justify-center gap-2 py-5 px-1 transition-all border-r border-slate-100 last:border-r-0
+            ${state.activeTab===t.id ? 'text-indigo-600 bg-indigo-50' : 'text-slate-600 hover:bg-slate-50'}">
+            <i class="fa ${t.icon} text-2xl"></i>
+            <span class="text-[11px] font-semibold leading-tight text-center">${t.label}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>
   </nav>`;
 }
+
+function toggleMoreMenu() {
+  const popup = document.getElementById('more-menu-popup');
+  if (popup) popup.classList.toggle('hidden');
+}
+function closeMoreMenu() {
+  const popup = document.getElementById('more-menu-popup');
+  if (popup) popup.classList.add('hidden');
+}
+window.toggleMoreMenu = toggleMoreMenu;
+window.closeMoreMenu = closeMoreMenu;
 
 // ─── Mobile Frame ────────────────────────────────────────────
 function renderMobileFrame() {
@@ -379,12 +417,12 @@ function renderDashboard(isMobile) {
   ];
 
   return `
-  <div class="space-y-${isMobile?'3':'5'}">
+  <div class="space-y-4">
     <!-- KPI Cards -->
-    <div class="grid grid-cols-2 ${isMobile?'gap-2':'gap-4 sm:grid-cols-4'}">
+    <div class="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-4">
       ${kpis.map(k => `
-        <div class="card flex items-center gap-3 ${isMobile?'p-3':''}">
-          <div class="w-11 h-11 rounded-xl ${k.color} flex items-center justify-center shrink-0">
+        <div class="card flex items-center gap-3 p-3 sm:p-4">
+          <div class="w-10 h-10 sm:w-11 sm:h-11 rounded-xl ${k.color} flex items-center justify-center shrink-0">
             <i class="fa ${k.icon} text-lg"></i>
           </div>
           <div>
@@ -510,7 +548,8 @@ function renderNFC(isMobile) {
       </a>
     </div>
 
-    <div class="${isMobile?'space-y-3':'grid grid-cols-2 gap-5'}">
+    <!-- スマホ: 1カラム縦並び、PC(md以上): 2カラム -->
+    <div class="space-y-4 md:grid md:grid-cols-2 md:gap-5 md:space-y-0">
       <!-- Scanner Panel -->
       <div class="card space-y-4">
 
@@ -558,7 +597,7 @@ function renderNFC(isMobile) {
 
         <!-- カメラ読取モード -->
         <div id="scan-camera-panel" class="${cameraActive?'':'hidden'} space-y-3">
-          <div class="relative rounded-2xl overflow-hidden bg-slate-900" style="aspect-ratio:4/3;">
+          <div class="relative rounded-2xl overflow-hidden bg-slate-900" style="aspect-ratio:3/4; max-height:60vh;">
             <video id="qr-video" class="w-full h-full object-cover" autoplay playsinline muted></video>
             <canvas id="qr-canvas" class="hidden"></canvas>
             <!-- スキャン枠 -->
@@ -586,12 +625,12 @@ function renderNFC(isMobile) {
         </div>
 
         ${scanResult ? `
-        <div class="rounded-xl p-3 border-2 ${scanResult.success?'bg-emerald-50 border-emerald-200':'bg-red-50 border-red-200'} slide-in">
-          <div class="flex items-start gap-2">
-            <i class="fa fa-${scanResult.success?'circle-check text-emerald-500':'circle-xmark text-red-500'} mt-0.5"></i>
+        <div class="rounded-2xl p-4 border-2 ${scanResult.success?'bg-emerald-50 border-emerald-300':'bg-red-50 border-red-300'} slide-in">
+          <div class="flex items-center gap-3">
+            <i class="fa fa-${scanResult.success?'circle-check text-emerald-500':'circle-xmark text-red-500'} text-2xl shrink-0"></i>
             <div>
-              ${scanResult.action ? `<span class="text-xs font-bold uppercase px-1.5 py-0.5 rounded bg-white/70 text-slate-600 mb-1 inline-block">${scanResult.action==='check_out'?'貸出':scanResult.action==='check_in'?'返却':'引継'}</span>` : ''}
-              <p class="text-sm font-semibold ${scanResult.success?'text-emerald-800':'text-red-800'}">${scanResult.message}</p>
+              ${scanResult.action ? `<span class="text-xs font-bold px-2 py-0.5 rounded-full mb-1 inline-block ${scanResult.action==='check_out'?'bg-blue-100 text-blue-700':scanResult.action==='check_in'?'bg-emerald-100 text-emerald-700':'bg-purple-100 text-purple-700'}">${scanResult.action==='check_out'?'貸出':scanResult.action==='check_in'?'返却':'引継'}</span><br>` : ''}
+              <p class="text-base font-bold ${scanResult.success?'text-emerald-800':'text-red-800'}">${scanResult.message}</p>
             </div>
           </div>
         </div>` : ''}
@@ -1035,7 +1074,7 @@ function renderNewInspection(isMobile) {
   <div class="space-y-4">
     <div class="card space-y-4">
       <h3 class="font-semibold text-slate-700 text-sm">点検情報入力</h3>
-      <div class="${isMobile?'space-y-3':'grid grid-cols-2 gap-4'}">
+      <div class="space-y-3 sm:grid sm:grid-cols-2 sm:gap-4 sm:space-y-0">
         <div>
           <label class="form-label">点検対象</label>
           <select class="form-select" id="insp-resource" onchange="onInspResourceChange(this.value)">
@@ -1478,7 +1517,7 @@ function renderEquipment(isMobile) {
     <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
       <i class="fa fa-box-archive text-indigo-600"></i> 備品使用状況
     </h2>
-    <div class="grid ${isMobile?'grid-cols-1':'grid-cols-2 sm:grid-cols-3'} gap-3">
+    <div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
       ${equipment.map(r => {
         const teacher = r.current_teacher_id ? getTeacher(r.current_teacher_id) : null;
         const inUse = r.status === 'checked_out';
@@ -1510,7 +1549,7 @@ function renderClassroom(isMobile) {
     <h2 class="text-xl font-bold text-slate-800 flex items-center gap-2">
       <i class="fa fa-door-open text-indigo-600"></i> 教室使用状況
     </h2>
-    <div class="grid ${isMobile?'grid-cols-1':'grid-cols-2'} gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
       ${classrooms.map(r => {
         const teacher = r.current_teacher_id ? getTeacher(r.current_teacher_id) : null;
         const useCount = state.nfcHistory.filter(h => h.resource_id === r.id).length;
