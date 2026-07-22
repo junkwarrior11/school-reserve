@@ -846,6 +846,20 @@ app.get('/scan/:qrId', async (c) => {
 
   const baseUrl = new URL(c.req.url).origin
 
+  // ── 安全点検用データ ──
+  const DEFAULT_ITEMS_CLASSROOM = ['非常扉周りに避難の妨げとなる物がないか','窓・照明・防球ネット等の破損はないか','消火器の配置状況・使用期限の確認','備品・机・椅子の破損や危険な状態がないか','電気設備・コンセントの状態確認']
+  const DEFAULT_ITEMS_EQUIPMENT = ['本体の外観に割れ・破損・汚れがないか','電源・バッテリーの状態確認','付属品・消耗品の残量と期限確認','動作確認（正常に動くか）','保管場所・整理整頓の確認']
+  const customInspectItems = resource ? JSON.parse(resource.custom_inspection_items || '[]') : []
+  const inspectItems: string[] = customInspectItems.length > 0
+    ? customInspectItems
+    : (resource?.category === 'classroom' ? DEFAULT_ITEMS_CLASSROOM : DEFAULT_ITEMS_EQUIPMENT)
+
+  // 直近の点検記録
+  const inspectLogsRes = resource ? await db.prepare(
+    'SELECT il.*, t.name as teacher_name FROM inspection_logs il LEFT JOIN teachers t ON il.teacher_id = t.id WHERE il.resource_id = ? ORDER BY il.date DESC LIMIT 3'
+  ).bind(resource.id).all() : { results: [] }
+  const recentInspectLogs = inspectLogsRes.results as any[]
+
   if (!resource) {
     // リソースが見つからない場合
     return c.html(`<!DOCTYPE html>
@@ -895,7 +909,8 @@ app.get('/scan/:qrId', async (c) => {
     @keyframes spin { to { transform: rotate(360deg); } }
     .spinner { animation: spin .7s linear infinite; }
     .btn-tap { -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-    select { -webkit-appearance: none; appearance: none; }
+    select, textarea, input[type=text] { -webkit-appearance: none; appearance: none; }
+    .check-btn { min-height: 44px; }
   </style>
 </head>
 <body class="bg-slate-100 min-h-screen">
@@ -912,6 +927,18 @@ app.get('/scan/:qrId', async (c) => {
   </header>
 
   <main class="max-w-lg mx-auto px-4 py-6 space-y-4 fade-in">
+
+    <!-- タブ切り替え -->
+    <div class="flex gap-2 bg-white rounded-2xl shadow-sm border border-slate-100 p-1.5">
+      <button id="tab-btn-scan" onclick="switchTab('scan')"
+        class="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap bg-indigo-600 text-white shadow-sm">
+        <i class="fa fa-qrcode"></i> 貸出 / 返却
+      </button>
+      <button id="tab-btn-inspect" onclick="switchTab('inspect')"
+        class="flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap text-slate-500">
+        <i class="fa fa-shield-halved"></i> 安全点検
+      </button>
+    </div>
 
     <!-- リソース情報カード -->
     <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
@@ -944,6 +971,8 @@ app.get('/scan/:qrId', async (c) => {
       </div>
     </div>
 
+    <!-- 貸出/返却パネル -->
+    <div id="scan-panel" class="space-y-4">
     <!-- 操作フォーム -->
     <div id="action-form" class="${resource.status === 'maintenance' ? 'hidden' : ''} bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-4">
       <h2 class="font-bold text-slate-800 flex items-center gap-2">
@@ -1005,6 +1034,143 @@ app.get('/scan/:qrId', async (c) => {
       </div>
     </div>
 
+    </div><!-- /scan-panel -->
+
+    <!-- 安全点検パネル -->
+    <div id="inspect-panel" class="hidden space-y-4">
+
+      <!-- 点検フォーム -->
+      <div id="inspect-form" class="space-y-4">
+
+        <!-- 点検者 -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+          <h2 class="font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa fa-user-check text-indigo-500"></i> 点検者
+          </h2>
+          <div class="relative">
+            <select id="inspect-teacher-select"
+              class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3.5 text-base font-semibold text-slate-800 focus:outline-none focus:border-indigo-400 pr-10">
+              <option value="">教員を選んでください</option>
+              ${teacherOptions}
+            </select>
+            <i class="fa fa-chevron-down absolute right-4 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none text-sm"></i>
+          </div>
+        </div>
+
+        <!-- 総合評価 -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+          <h2 class="font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa fa-clipboard-check text-indigo-500"></i> 総合評価
+          </h2>
+          <div class="grid grid-cols-3 gap-2" id="overall-btns">
+            <button onclick="setOverall('ok')" id="btn-ok"
+              class="check-btn btn-tap rounded-2xl font-bold text-sm border-2 border-emerald-300 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-400 transition-all flex flex-col items-center justify-center gap-1 py-3">
+              <i class="fa fa-circle-check text-lg"></i><span>良好</span>
+            </button>
+            <button onclick="setOverall('caution')" id="btn-caution"
+              class="check-btn btn-tap rounded-2xl font-bold text-sm border-2 border-slate-200 text-slate-500 transition-all flex flex-col items-center justify-center gap-1 py-3">
+              <i class="fa fa-triangle-exclamation text-lg"></i><span>要確認</span>
+            </button>
+            <button onclick="setOverall('ng')" id="btn-ng"
+              class="check-btn btn-tap rounded-2xl font-bold text-sm border-2 border-slate-200 text-slate-500 transition-all flex flex-col items-center justify-center gap-1 py-3">
+              <i class="fa fa-circle-xmark text-lg"></i><span>要修理</span>
+            </button>
+          </div>
+        </div>
+
+        <!-- チェックリスト -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+          <h2 class="font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa fa-list-check text-indigo-500"></i>
+            点検チェックリスト <span class="text-xs font-normal text-slate-400">(${inspectItems.length}項目)</span>
+          </h2>
+          <div class="space-y-3" id="checklist-container">
+            ${inspectItems.map((item, idx) => `
+            <div class="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+              <p class="text-sm font-semibold text-slate-800 mb-2">${idx + 1}. ${item}</p>
+              <div class="grid grid-cols-3 gap-1.5 mb-2">
+                <button onclick="setItemStatus(${idx},'ok')" id="item-ok-${idx}"
+                  class="check-btn btn-tap rounded-xl text-xs font-bold border-2 border-emerald-300 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300 transition-all py-2">
+                  ◯ 良好
+                </button>
+                <button onclick="setItemStatus(${idx},'caution')" id="item-caution-${idx}"
+                  class="check-btn btn-tap rounded-xl text-xs font-bold border-2 border-slate-200 text-slate-500 transition-all py-2">
+                  △ 注意
+                </button>
+                <button onclick="setItemStatus(${idx},'ng')" id="item-ng-${idx}"
+                  class="check-btn btn-tap rounded-xl text-xs font-bold border-2 border-slate-200 text-slate-500 transition-all py-2">
+                  ✕ 修理
+                </button>
+              </div>
+              <input type="text" placeholder="コメント（任意）"
+                class="w-full bg-white border border-slate-200 rounded-xl px-3 py-2 text-sm focus:outline-none focus:border-indigo-400 transition-all"
+                oninput="setItemComment(${idx}, this.value)" id="item-comment-${idx}">
+            </div>
+            `).join('')}
+          </div>
+        </div>
+
+        <!-- 特記事項 -->
+        <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5 space-y-3">
+          <h2 class="font-bold text-slate-800 flex items-center gap-2">
+            <i class="fa fa-pen-to-square text-indigo-500"></i> 特記事項・コメント
+          </h2>
+          <textarea id="general-comment" rows="3" placeholder="気になった点や詳細コメントを記入してください（任意）"
+            class="w-full bg-slate-50 border-2 border-slate-200 rounded-2xl px-4 py-3 text-sm focus:outline-none focus:border-indigo-400 transition-all resize-none"></textarea>
+        </div>
+
+        <!-- 送信ボタン -->
+        <button onclick="submitInspection()" id="submit-inspect-btn"
+          class="btn-tap w-full py-4 rounded-2xl font-bold text-white text-base flex items-center justify-center gap-3 transition-all active:scale-95 shadow-sm"
+          style="background: linear-gradient(135deg, #10b981, #059669);">
+          <i class="fa fa-shield-check text-lg"></i>
+          点検記録を保存する
+        </button>
+      </div>
+
+      <!-- 点検完了表示 -->
+      <div id="inspect-result-section" class="hidden fade-in bg-white rounded-3xl shadow-sm border border-slate-100 p-6 text-center space-y-4">
+        <div id="inspect-result-icon" class="text-5xl"></div>
+        <p id="inspect-result-title" class="text-xl font-bold text-slate-800"></p>
+        <p id="inspect-result-sub" class="text-sm text-slate-500 leading-relaxed"></p>
+        <button onclick="resetInspect()"
+          class="btn-tap w-full py-3.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-2xl font-bold text-sm transition-all">
+          もう一度点検する
+        </button>
+        <a href="${baseUrl}"
+          class="block w-full py-3.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-2xl font-bold text-sm transition-all btn-tap">
+          管理画面を開く
+        </a>
+      </div>
+
+      <!-- 直近の点検履歴 -->
+      <div class="bg-white rounded-3xl shadow-sm border border-slate-100 p-5">
+        <h3 class="font-bold text-slate-700 text-sm flex items-center gap-2 mb-3">
+          <i class="fa fa-clock-rotate-left text-slate-400"></i> 直近の点検記録
+        </h3>
+        <div>${recentInspectLogs.length === 0
+          ? '<p class="text-sm text-slate-400 text-center py-3">点検記録がありません</p>'
+          : recentInspectLogs.map(l => {
+              const statusMap: Record<string, [string, string]> = {
+                ok:      ['#d1fae5', '✅ 良好'],
+                caution: ['#fef3c7', '⚠️ 要確認'],
+                ng:      ['#fee2e2', '❌ 要修理'],
+              }
+              const [bg, label] = statusMap[l.overall_status] || ['#f1f5f9', l.overall_status]
+              const dt = new Date(l.date).toLocaleString('ja-JP', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+              return `<div class="flex items-center justify-between py-2 border-b border-slate-50 last:border-0">
+                <div>
+                  <span class="text-xs font-bold px-2 py-0.5 rounded-full mr-1" style="background:${bg}">${label}</span>
+                  <span class="text-sm text-slate-700 font-semibold">${l.teacher_name || '不明'}</span>
+                </div>
+                <span class="text-xs text-slate-400 shrink-0">${dt}</span>
+              </div>`
+            }).join('')
+        }</div>
+      </div>
+
+    </div><!-- /inspect-panel -->
+
   </main>
 
   <script>
@@ -1012,6 +1178,26 @@ app.get('/scan/:qrId', async (c) => {
     const QR_ID       = '${qrId}';
     const RESOURCE_STATUS = '${resource.status}';
     const CURRENT_TEACHER_ID = '${resource.current_teacher_id || ''}';
+    const INSPECT_ITEMS = ${JSON.stringify(inspectItems)};
+
+    // ── タブ切り替え ──
+    function switchTab(tab) {
+      const scanPanel    = document.getElementById('scan-panel');
+      const inspectPanel = document.getElementById('inspect-panel');
+      const btnScan      = document.getElementById('tab-btn-scan');
+      const btnInspect   = document.getElementById('tab-btn-inspect');
+      if (tab === 'scan') {
+        scanPanel.classList.remove('hidden');
+        inspectPanel.classList.add('hidden');
+        btnScan.className    = 'flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap bg-indigo-600 text-white shadow-sm';
+        btnInspect.className = 'flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap text-slate-500';
+      } else {
+        scanPanel.classList.add('hidden');
+        inspectPanel.classList.remove('hidden');
+        btnScan.className    = 'flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap text-slate-500';
+        btnInspect.className = 'flex-1 py-2.5 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all btn-tap bg-emerald-600 text-white shadow-sm';
+      }
+    }
 
     // ── 教員選択 → ボタン表示 ──
     const sel = document.getElementById('teacher-select');
@@ -1150,6 +1336,128 @@ app.get('/scan/:qrId', async (c) => {
 
     // 初期ロード
     loadHistory();
+
+    // ══════════════════════════════════════════
+    // 安全点検タブ ロジック
+    // ══════════════════════════════════════════
+
+    let overallStatus = 'ok';
+    const itemStatuses = INSPECT_ITEMS.map(() => 'ok');
+    const itemComments = INSPECT_ITEMS.map(() => '');
+
+    // 総合評価ボタン スタイル
+    const OVERALL_STYLES = {
+      ok:      { active: 'border-emerald-300 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300', inactive: 'border-slate-200 bg-white text-slate-500' },
+      caution: { active: 'border-amber-300 bg-amber-50 text-amber-700 ring-2 ring-amber-300',         inactive: 'border-slate-200 bg-white text-slate-500' },
+      ng:      { active: 'border-red-300 bg-red-50 text-red-700 ring-2 ring-red-300',                 inactive: 'border-slate-200 bg-white text-slate-500' },
+    };
+    function setOverall(val) {
+      overallStatus = val;
+      ['ok','caution','ng'].forEach(v => {
+        const btn = document.getElementById('btn-' + v);
+        if (!btn) return;
+        const s = OVERALL_STYLES[v];
+        btn.className = btn.className.replace(/border-\\S+|bg-\\S+|text-\\S+|ring-\\S+/g, '').trim();
+        btn.classList.add(...(v === val ? s.active : s.inactive).split(' '));
+      });
+    }
+
+    // チェックリストアイテム スタイル
+    const ITEM_STYLES = {
+      ok:      { active: 'border-emerald-300 bg-emerald-50 text-emerald-700 ring-2 ring-emerald-300', inactive: 'border-slate-200 bg-white text-slate-500' },
+      caution: { active: 'border-amber-300 bg-amber-50 text-amber-700 ring-2 ring-amber-300',         inactive: 'border-slate-200 bg-white text-slate-500' },
+      ng:      { active: 'border-red-300 bg-red-50 text-red-700 ring-2 ring-red-300',                 inactive: 'border-slate-200 bg-white text-slate-500' },
+    };
+    function setItemStatus(idx, val) {
+      itemStatuses[idx] = val;
+      ['ok','caution','ng'].forEach(v => {
+        const btn = document.getElementById(\`item-\${v}-\${idx}\`);
+        if (!btn) return;
+        const s = ITEM_STYLES[v];
+        btn.className = btn.className.replace(/border-\\S+|bg-\\S+|text-\\S+|ring-\\S+/g, '').trim();
+        btn.classList.add(...(v === val ? s.active : s.inactive).split(' '));
+      });
+    }
+    function setItemComment(idx, val) { itemComments[idx] = val; }
+
+    // 送信
+    async function submitInspection() {
+      const teacherId = document.getElementById('inspect-teacher-select').value;
+      if (!teacherId) {
+        alert('点検者を選択してください');
+        document.getElementById('inspect-teacher-select').focus();
+        return;
+      }
+      const btn = document.getElementById('submit-inspect-btn');
+      btn.disabled = true;
+      btn.innerHTML = \`<svg class="spinner w-6 h-6 mr-2" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+        <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+        <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+      </svg> 保存中...\`;
+
+      const items = INSPECT_ITEMS.map((title, i) => ({
+        id: String(i + 1), title,
+        status: itemStatuses[i],
+        comment: itemComments[i],
+      }));
+
+      try {
+        const res = await fetch('/api/inspection', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            resourceId: RESOURCE_ID,
+            teacherId,
+            overallStatus,
+            items,
+            generalComment: document.getElementById('general-comment').value.trim(),
+            date: new Date().toISOString(),
+          }),
+        });
+        const data = await res.json();
+        showInspectResult(data.success, overallStatus, data.message);
+      } catch(e) {
+        showInspectResult(false, null, 'ネットワークエラーが発生しました。再度お試しください。');
+      }
+    }
+
+    // 結果表示
+    function showInspectResult(success, status, errMsg) {
+      document.getElementById('inspect-form').classList.add('hidden');
+      const section = document.getElementById('inspect-result-section');
+      section.classList.remove('hidden');
+      if (success) {
+        const iconMap  = { ok:'✅', caution:'⚠️', ng:'🔧' };
+        const titleMap = { ok:'点検完了 — 良好', caution:'点検完了 — 要確認', ng:'点検完了 — 要修理' };
+        const subMap   = {
+          ok:      '安全確認が完了しました。記録を保存しました。',
+          caution: '確認が必要な点があります。管理担当者に連絡してください。',
+          ng:      '修理が必要な箇所があります。管理担当者に連絡し、使用を控えてください。',
+        };
+        document.getElementById('inspect-result-icon').textContent  = iconMap[status]  || '✅';
+        document.getElementById('inspect-result-title').textContent = titleMap[status] || '点検完了';
+        document.getElementById('inspect-result-sub').textContent   = subMap[status]   || '記録を保存しました。';
+      } else {
+        document.getElementById('inspect-result-icon').textContent  = '❌';
+        document.getElementById('inspect-result-title').textContent = 'エラーが発生しました';
+        document.getElementById('inspect-result-sub').textContent   = errMsg || '保存に失敗しました。';
+      }
+    }
+
+    // リセット
+    function resetInspect() {
+      overallStatus = 'ok';
+      itemStatuses.fill('ok');
+      itemComments.fill('');
+      setOverall('ok');
+      INSPECT_ITEMS.forEach((_, i) => setItemStatus(i, 'ok'));
+      document.getElementById('general-comment').value = '';
+      document.getElementById('inspect-form').classList.remove('hidden');
+      document.getElementById('inspect-result-section').classList.add('hidden');
+      const btn = document.getElementById('submit-inspect-btn');
+      btn.disabled = false;
+      btn.innerHTML = '<i class="fa fa-shield-check text-lg"></i> 点検記録を保存する';
+    }
   </script>
 </body>
 </html>`)
