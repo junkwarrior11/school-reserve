@@ -444,93 +444,241 @@ app.post('/api/resources/quick-register', async (c) => {
 app.get('/print-qr', async (c) => {
   const db = c.env.DB
   const { category } = c.req.query()
-  let sql = 'SELECT id, name, category, location, qr_code_id FROM resources ORDER BY category ASC, name ASC'
   const resources = category
     ? await db.prepare('SELECT id, name, category, location, qr_code_id FROM resources WHERE category = ? ORDER BY name ASC').bind(category).all()
-    : await db.prepare(sql).all()
+    : await db.prepare('SELECT id, name, category, location, qr_code_id FROM resources ORDER BY category ASC, name ASC').all()
 
   const rows = (resources.results as any[])
-  const cards = rows.map(r => `
-    <div class="qr-card">
-      <div class="qr-placeholder" id="qr-${r.id}" data-qr="${r.qr_code_id || r.id}"></div>
-      <div class="qr-label">
-        <div class="qr-name">${r.name}</div>
-        <div class="qr-id">${r.qr_code_id || r.id}</div>
-        ${r.location ? `<div class="qr-loc">${r.location}</div>` : ''}
-        <div class="qr-cat">${r.category === 'classroom' ? '📚 教室' : '📦 備品'}</div>
-      </div>
-    </div>
-  `).join('')
+  // data属性にJSON埋め込み（JS側で一括処理）
+  const cardsJson = JSON.stringify(rows.map(r => ({
+    id: r.id,
+    name: r.name,
+    category: r.category,
+    location: r.location || '',
+    qr: r.qr_code_id || r.id,
+  })))
 
   return c.html(`<!DOCTYPE html>
 <html lang="ja">
 <head>
   <meta charset="UTF-8">
-  <title>QRコード印刷 | School-Trace</title>
+  <title>QRコード一覧 | School-Trace</title>
   <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
-    * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Hiragino Kaku Gothic Pro', 'Meiryo', sans-serif; background: #f8fafc; }
-    .toolbar {
-      position: fixed; top: 0; left: 0; right: 0; z-index: 100;
-      background: #1e293b; color: white; padding: 12px 20px;
-      display: flex; align-items: center; justify-between; gap: 12px;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{font-family:'Hiragino Kaku Gothic Pro','Meiryo',sans-serif;background:#f1f5f9}
+    /* ── Toolbar ── */
+    .toolbar{
+      position:fixed;top:0;left:0;right:0;z-index:100;
+      background:#1e293b;color:white;padding:10px 16px;
+      display:flex;align-items:center;justify-content:space-between;gap:10px;
+      box-shadow:0 2px 10px rgba(0,0,0,0.4);
     }
-    .toolbar h1 { font-size: 16px; font-weight: bold; }
-    .toolbar-btns { display: flex; gap: 8px; align-items: center; }
-    .btn-print { background: #6366f1; color: white; border: none; padding: 8px 20px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; }
-    .btn-print:hover { background: #4f46e5; }
-    .btn-back { background: transparent; color: #94a3b8; border: 1px solid #475569; padding: 8px 16px; border-radius: 8px; font-weight: bold; cursor: pointer; font-size: 14px; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; }
-    .btn-back:hover { color: white; border-color: #94a3b8; }
-    .filter-select { background: #334155; color: white; border: 1px solid #475569; padding: 7px 12px; border-radius: 8px; font-size: 13px; cursor: pointer; }
-    .content { padding: 80px 20px 20px; }
-    .grid { display: flex; flex-wrap: wrap; gap: 12px; }
-    .qr-card {
-      background: white; border: 1.5px solid #e2e8f0; border-radius: 12px;
-      padding: 12px; width: 160px; display: flex; flex-direction: column; align-items: center; gap: 8px;
-      page-break-inside: avoid; box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+    .toolbar-left{display:flex;align-items:center;gap:10px}
+    .toolbar h1{font-size:15px;font-weight:700;white-space:nowrap}
+    .toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+    .progress-text{font-size:12px;color:#94a3b8;white-space:nowrap}
+    select.filter{background:#334155;color:white;border:1px solid #475569;padding:6px 10px;border-radius:8px;font-size:12px;cursor:pointer}
+    .btn{border:none;padding:7px 14px;border-radius:8px;font-weight:700;font-size:13px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:opacity .15s}
+    .btn:hover{opacity:.85}
+    .btn:disabled{opacity:.4;cursor:not-allowed}
+    .btn-indigo{background:#6366f1;color:white}
+    .btn-emerald{background:#10b981;color:white}
+    .btn-slate{background:transparent;color:#94a3b8;border:1px solid #475569}
+    .btn-slate:hover{color:white;border-color:#94a3b8}
+    /* ── Progress bar ── */
+    .progress-bar-wrap{height:3px;background:#334155;position:fixed;top:50px;left:0;right:0;z-index:99}
+    .progress-bar{height:3px;background:#6366f1;width:0%;transition:width .2s}
+    /* ── Content ── */
+    .content{padding:70px 16px 24px}
+    .count-bar{font-size:13px;color:#64748b;margin-bottom:12px;display:flex;align-items:center;gap:8px}
+    /* ── Grid ── */
+    .grid{display:flex;flex-wrap:wrap;gap:10px}
+    /* ── Card ── */
+    .qr-card{
+      background:white;border:1.5px solid #e2e8f0;border-radius:14px;
+      padding:12px 10px;width:162px;
+      display:flex;flex-direction:column;align-items:center;gap:6px;
+      page-break-inside:avoid;
+      transition:box-shadow .15s,border-color .15s;
+      cursor:default;
     }
-    .qr-placeholder img { display: block; width: 130px; height: 130px; border-radius: 8px; }
-    .qr-label { text-align: center; width: 100%; }
-    .qr-name { font-weight: bold; font-size: 12px; color: #1e293b; line-height: 1.3; margin-bottom: 3px; }
-    .qr-id { font-size: 8px; color: #94a3b8; font-family: monospace; word-break: break-all; margin-bottom: 2px; }
-    .qr-loc { font-size: 10px; color: #64748b; }
-    .qr-cat { font-size: 10px; color: #64748b; margin-top: 2px; }
-    .count-bar { font-size: 13px; color: #64748b; margin-bottom: 12px; }
-    @media print {
-      .toolbar { display: none !important; }
-      .content { padding: 0; }
-      body { background: white; }
-      .qr-card { box-shadow: none; border-color: #cbd5e1; }
+    .qr-card:hover{box-shadow:0 4px 14px rgba(99,102,241,.15);border-color:#a5b4fc}
+    .qr-img-wrap{
+      width:136px;height:136px;border-radius:10px;overflow:hidden;
+      background:#f1f5f9;display:flex;align-items:center;justify-content:center;
+      position:relative;
+    }
+    .qr-img-wrap img{width:136px;height:136px;display:block}
+    .qr-spinner{
+      width:28px;height:28px;border:3px solid #e2e8f0;
+      border-top-color:#6366f1;border-radius:50%;
+      animation:spin .7s linear infinite;
+    }
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .qr-dl-btn{
+      width:100%;padding:5px 0;border-radius:8px;border:1px solid #e2e8f0;
+      background:white;color:#6366f1;font-size:11px;font-weight:700;
+      cursor:pointer;display:flex;align-items:center;justify-content:center;gap:4px;
+      transition:background .12s,border-color .12s;
+    }
+    .qr-dl-btn:hover{background:#eef2ff;border-color:#a5b4fc}
+    .qr-label{text-align:center;width:100%}
+    .qr-name{font-weight:700;font-size:12px;color:#1e293b;line-height:1.3;margin-bottom:2px;word-break:break-all}
+    .qr-id{font-size:8px;color:#94a3b8;font-family:monospace;word-break:break-all;margin-bottom:2px}
+    .qr-loc{font-size:10px;color:#64748b}
+    .qr-cat-badge{
+      display:inline-block;padding:2px 7px;border-radius:99px;font-size:9px;font-weight:700;margin-top:2px;
+    }
+    .cat-classroom{background:#dbeafe;color:#1d4ed8}
+    .cat-equipment{background:#f3e8ff;color:#7e22ce}
+    /* ── Print ── */
+    @media print{
+      .toolbar,.progress-bar-wrap,.qr-dl-btn{display:none!important}
+      .content{padding:0}
+      body{background:white}
+      .qr-card{box-shadow:none;border-color:#cbd5e1;border-radius:8px}
     }
   </style>
 </head>
 <body>
   <div class="toolbar">
-    <h1>🖨️ QRコード印刷</h1>
-    <div class="toolbar-btns">
-      <select class="filter-select" onchange="location.href='/print-qr'+(this.value?'?category='+this.value:'')">
+    <div class="toolbar-left">
+      <a href="/" class="btn btn-slate" style="padding:6px 10px;font-size:12px">← 戻る</a>
+      <h1>🖨️ QRコード一覧</h1>
+    </div>
+    <div class="toolbar-right">
+      <span class="progress-text" id="prog-text">生成中...</span>
+      <select class="filter" onchange="location.href='/print-qr'+(this.value?'?category='+this.value:'')">
         <option value="" ${!category?'selected':''}>すべて (${rows.length}件)</option>
         <option value="classroom" ${category==='classroom'?'selected':''}>教室のみ</option>
         <option value="equipment" ${category==='equipment'?'selected':''}>備品のみ</option>
       </select>
-      <a href="/" class="btn-back">← 戻る</a>
-      <button class="btn-print" onclick="window.print()">🖨️ 印刷する</button>
+      <button class="btn btn-emerald" id="btn-zip" onclick="downloadAllZip()" disabled>
+        ⬇ 全件ZIP
+      </button>
+      <button class="btn btn-indigo" onclick="window.print()">🖨️ 印刷</button>
     </div>
   </div>
+  <div class="progress-bar-wrap"><div class="progress-bar" id="prog-bar"></div></div>
   <div class="content">
-    <div class="count-bar">${rows.length} 件のQRコードを表示中</div>
-    <div class="grid">${cards}</div>
+    <div class="count-bar">
+      <span id="count-label">${rows.length} 件</span>
+    </div>
+    <div class="grid" id="qr-grid"></div>
   </div>
+
   <script>
-    document.querySelectorAll('[data-qr]').forEach(el => {
-      const val = el.getAttribute('data-qr');
-      QRCode.toDataURL(val, { width: 130, margin: 1, color: { dark: '#1e293b', light: '#ffffff' } }, (err, url) => {
-        if (!err) el.innerHTML = '<img src="' + url + '" alt="QR">';
-        else el.innerHTML = '<div style="width:130px;height:130px;display:flex;align-items:center;justify-content:center;background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;">生成エラー</div>';
-      });
+    const RESOURCES = ${cardsJson};
+    const qrDataURLs = {};   // id → dataURL (生成完了後に蓄積)
+    let doneCount = 0;
+
+    // ── カード雛形を先に全件描画 ──
+    const grid = document.getElementById('qr-grid');
+    RESOURCES.forEach(r => {
+      const card = document.createElement('div');
+      card.className = 'qr-card';
+      card.id = 'card-' + r.id;
+      card.innerHTML =
+        '<div class="qr-img-wrap" id="img-' + r.id + '"><div class="qr-spinner"></div></div>' +
+        '<button class="qr-dl-btn" id="dl-' + r.id + '" onclick="dlOne(\\''+r.id+'\\')" disabled>' +
+          '⬇ PNG保存' +
+        '</button>' +
+        '<div class="qr-label">' +
+          '<div class="qr-name">' + r.name + '</div>' +
+          '<div class="qr-id">' + r.qr + '</div>' +
+          (r.location ? '<div class="qr-loc">' + r.location + '</div>' : '') +
+          '<span class="qr-cat-badge ' + (r.category==='classroom'?'cat-classroom':'cat-equipment') + '">' +
+            (r.category==='classroom' ? '📚 教室' : '📦 備品') +
+          '</span>' +
+        '</div>';
+      grid.appendChild(card);
     });
+
+    // ── 非同期でQR画像を順次生成（バッチ処理でUIブロックを防ぐ） ──
+    async function generateAll() {
+      const total = RESOURCES.length;
+      const bar = document.getElementById('prog-bar');
+      const progText = document.getElementById('prog-text');
+      const BATCH = 6; // 同時生成数
+
+      for (let i = 0; i < total; i += BATCH) {
+        const slice = RESOURCES.slice(i, i + BATCH);
+        await Promise.all(slice.map(r => generateOne(r)));
+        doneCount = Math.min(i + BATCH, total);
+        const pct = Math.round(doneCount / total * 100);
+        bar.style.width = pct + '%';
+        progText.textContent = doneCount + ' / ' + total + ' 件生成済み';
+        await new Promise(res => setTimeout(res, 0)); // UIスレッド解放
+      }
+
+      bar.style.background = '#10b981';
+      progText.textContent = '✅ ' + total + ' 件 すべて生成完了';
+      document.getElementById('btn-zip').disabled = false;
+    }
+
+    function generateOne(r) {
+      return new Promise(resolve => {
+        QRCode.toDataURL(r.qr, {
+          width: 300, margin: 2,
+          color: { dark: '#1e293b', light: '#ffffff' }
+        }, (err, url) => {
+          const imgWrap = document.getElementById('img-' + r.id);
+          const dlBtn   = document.getElementById('dl-'  + r.id);
+          if (!err) {
+            qrDataURLs[r.id] = url;
+            if (imgWrap) imgWrap.innerHTML = '<img src="' + url + '" alt="QR">';
+            if (dlBtn)   dlBtn.disabled = false;
+          } else {
+            if (imgWrap) imgWrap.innerHTML =
+              '<div style="width:136px;height:136px;display:flex;align-items:center;justify-content:center;' +
+              'background:#fee2e2;border-radius:8px;font-size:10px;color:#dc2626;text-align:center;padding:8px">生成エラー</div>';
+          }
+          resolve();
+        });
+      });
+    }
+
+    // ── 個別 PNG ダウンロード ──
+    function dlOne(id) {
+      const url = qrDataURLs[id];
+      if (!url) return;
+      const r = RESOURCES.find(x => x.id === id);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = (r ? r.name : id) + '_QR.png';
+      a.click();
+    }
+
+    // ── 全件 ZIP ダウンロード（JSZip） ──
+    async function downloadAllZip() {
+      const btn = document.getElementById('btn-zip');
+      btn.disabled = true;
+      btn.textContent = '⏳ ZIP作成中...';
+
+      const zip = new JSZip();
+      const folder = zip.folder('QRcodes');
+      RESOURCES.forEach(r => {
+        const url = qrDataURLs[r.id];
+        if (!url) return;
+        // dataURL → base64
+        const base64 = url.split(',')[1];
+        folder.file(r.name + '_QR.png', base64, { base64: true });
+      });
+
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'SchoolTrace_QRcodes.zip';
+      a.click();
+
+      btn.disabled = false;
+      btn.textContent = '⬇ 全件ZIP';
+    }
+
+    // 起動
+    generateAll();
   </script>
 </body>
 </html>`)

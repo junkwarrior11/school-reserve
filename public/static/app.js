@@ -68,7 +68,8 @@ async function showQRModal(resourceId) {
   const r = getResource(resourceId);
   if (!r) return;
   const qrValue = r.qr_code_id || r.id;
-  const dataUrl = await generateQRDataURL(qrValue, 240);
+
+  // ローディング表示してから生成
   showModal(`
     <div class="space-y-4 text-center">
       <div class="flex items-center justify-between">
@@ -77,17 +78,42 @@ async function showQRModal(resourceId) {
       </div>
       <p class="font-semibold text-slate-700">${r.name}</p>
       <div class="flex justify-center">
-        <img src="${dataUrl}" alt="QR" class="rounded-xl border border-slate-200 shadow-sm" style="width:240px;height:240px;">
+        <div id="qr-modal-img" class="w-60 h-60 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center">
+          <div class="animate-spin w-8 h-8 border-2 border-indigo-300 border-t-indigo-600 rounded-full"></div>
+        </div>
       </div>
-      <p class="text-xs text-slate-400 font-mono">${qrValue}</p>
-      <div class="flex gap-3 pt-1">
+      <p class="text-xs text-slate-400 font-mono break-all">${qrValue}</p>
+      <div class="flex gap-3 pt-1" id="qr-modal-btns">
         <button onclick="closeModal()" class="btn-secondary flex-1">閉じる</button>
-        <a href="${dataUrl}" download="${r.name}_QR.png" class="btn-primary flex-1 flex items-center justify-center gap-2">
-          <i class="fa fa-download"></i> ダウンロード
-        </a>
+        <button disabled class="btn-primary flex-1 opacity-40" id="qr-dl-btn">
+          <i class="fa fa-download mr-1"></i> PNG保存
+        </button>
       </div>
     </div>
   `);
+
+  // 生成してDOMに差し込む
+  try {
+    const dataUrl = await generateQRDataURL(qrValue, 240);
+    const imgEl = document.getElementById('qr-modal-img');
+    const dlBtn = document.getElementById('qr-dl-btn');
+    if (imgEl) {
+      imgEl.innerHTML = `<img src="${dataUrl}" alt="QR" class="rounded-xl" style="width:240px;height:240px;">`;
+    }
+    if (dlBtn) {
+      dlBtn.disabled = false;
+      dlBtn.classList.remove('opacity-40');
+      dlBtn.onclick = () => {
+        const a = document.createElement('a');
+        a.href = dataUrl;
+        a.download = `${r.name}_QR.png`;
+        a.click();
+      };
+    }
+  } catch(e) {
+    const imgEl = document.getElementById('qr-modal-img');
+    if (imgEl) imgEl.innerHTML = `<p class="text-xs text-red-400">QR生成エラー</p>`;
+  }
 }
 
 async function renderQRInline(containerId, qrValue, size = 160) {
