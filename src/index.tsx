@@ -463,8 +463,6 @@ app.get('/print-qr', async (c) => {
 <head>
   <meta charset="UTF-8">
   <title>QRコード一覧 | School-Trace</title>
-  <script src="https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <style>
     *{box-sizing:border-box;margin:0;padding:0}
     body{font-family:'Hiragino Kaku Gothic Pro','Meiryo',sans-serif;background:#f1f5f9}
@@ -677,8 +675,24 @@ app.get('/print-qr', async (c) => {
       btn.textContent = '⬇ 全件ZIP';
     }
 
-    // 起動
-    generateAll();
+    // 起動：外部ライブラリを動的ロードしてから実行
+    function loadScript(src) {
+      return new Promise((resolve, reject) => {
+        const s = document.createElement('script');
+        s.src = src; s.onload = resolve; s.onerror = reject;
+        document.head.appendChild(s);
+      });
+    }
+    async function boot() {
+      try {
+        await loadScript('https://cdn.jsdelivr.net/npm/qrcode@1.5.3/build/qrcode.min.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js');
+        generateAll();
+      } catch(e) {
+        document.getElementById('prog-text').textContent = '⚠️ ライブラリの読み込みに失敗しました';
+      }
+    }
+    boot();
   </script>
 </body>
 </html>`)
